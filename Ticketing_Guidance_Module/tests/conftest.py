@@ -1,16 +1,17 @@
-"""
-RailSathi AI — Pytest Configuration & Fixtures
-"""
-
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
 import pytest
 from google.genai import types
 
+# Default to mock train provider for deterministic unit & scenario tests
+os.environ["TRAIN_DATA_PROVIDER"] = "mock"
+
 from backend.knowledge.database import init_database
 from backend.knowledge.ingest import ingest
 from backend.app import create_app
+
 
 
 class MockGenerateContentResponse:

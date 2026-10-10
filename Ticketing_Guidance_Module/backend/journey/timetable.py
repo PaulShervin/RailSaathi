@@ -36,9 +36,14 @@ from backend.journey.railradar_client import (
     RailRadarError,
     RailRadarConfigurationError,
     RailRadarNotFoundError,
+    RailRadarBadRequestError,
+    RailRadarAuthError,
+    RailRadarRateLimitError,
+    RailRadarUnavailableError,
 )
 
 logger = logging.getLogger("railsaathi.journey.timetable")
+
 
 
 # =====================================================================
