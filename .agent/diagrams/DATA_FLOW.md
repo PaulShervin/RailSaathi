@@ -1,132 +1,75 @@
 # DATA FLOW — RailSathi AI
 
 > Last updated: 2026-10-10
-> All stages are **PLANNED** — no application code implemented yet.
 
-## Request Lifecycle
+## Goal-Based Journey Planning Lifecycle
 
 ```mermaid
 sequenceDiagram
     participant P as Passenger
-    participant FE as Frontend<br/>(React)
-    participant API as Flask API
+    participant FE as React Frontend
+    participant API as Flask REST API
+    participant PLAN as Journey Planner
+    participant LOC as Location Resolution
+    participant TT as Train Search Service
+    participant FEAS as Feasibility Engine
+    participant RANK as Ranking Engine
+    participant BOOK as Booking Handoff
+
+    P->>FE: Enters Goal (e.g. "Meeting at Tidel Park Chennai by 10 AM from Bengaluru")
+    FE->>API: POST /api/journey/plan
+    API->>PLAN: Parse & extract requirements
+
+    PLAN->>LOC: Resolve "Tidel Park" & find nearby arrival stations (MAS, MS, TBM)
+    LOC-->>PLAN: Coordinates + Candidate Station list
+
+    PLAN->>TT: Search verified train schedules (SBC/YPR/SMVB → MAS/MS)
+    TT-->>PLAN: TrainService list with departure/arrival/classes/fares
+
+    loop For each candidate train
+        PLAN->>LOC: Estimate last-mile transit (MAS → Tidel Park)
+        LOC-->>PLAN: 35 mins (~15 km cab)
+        PLAN->>FEAS: Deterministic feasibility evaluation<br/>latest_station_arr = 10:00 - 45m - 35m = 08:40 AM
+        FEAS-->>PLAN: JourneyEvaluation (feasible/late, actual buffer mins, hard violations)
+    end
+
+    PLAN->>RANK: Score & rank feasible vs infeasible options
+    RANK->>BOOK: Generate safe IRCTC allowlisted booking handoff
+    BOOK-->>RANK: BookingHandoff payload
+    RANK-->>API: Structured JourneyPlanResponse
+    API-->>FE: JSON payload (Best match + Alternatives + Infeasible reasons)
+    FE-->>P: Render interactive Timeline, Buffer badges, & IRCTC Booking link
+```
+
+## AI Agent Controller Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant P as Passenger
+    participant FE as React Frontend
+    participant API as Flask API (/api/chat)
     participant CTRL as Agent Controller
-    participant LLM as Gemini LLM
-    participant TOOL as Ticketing Tool
-    participant KS as Knowledge Store
-    participant LOG as Trace Logger
+    participant LLM as Gemini 2.0 / DevMock Client
+    participant REG as Unified Tool Registry
+    participant TOOLS as Planning & Ticketing Tools
 
-    P->>FE: Types question
+    P->>FE: Types query
     FE->>API: POST /api/chat
-    API->>CTRL: Validate & forward request
-    
-    Note over CTRL: Check call budget<br/>Initialize trace
+    API->>CTRL: process_message(message, history)
 
-    CTRL->>LLM: Send question + system prompt + tool schemas
-    LLM-->>CTRL: Function call request (tool + args)
+    CTRL->>LLM: generate(contents + system_instructions + tool_schemas)
+    LLM-->>CTRL: FunctionCall (e.g. plan_goal_based_journey or explain_ticket_class)
 
-    Note over CTRL: Validate tool name<br/>Validate arguments<br/>Check budget remaining
+    Note over CTRL: Enforce tool budget (MAX_TOOL_CALLS=6)<br/>Validate tool schema arguments<br/>Check allowlist
 
-    CTRL->>TOOL: Execute approved tool call
-    TOOL->>KS: Query knowledge
-    KS-->>TOOL: Evidence + source metadata
-    TOOL-->>CTRL: Structured result + sources
+    CTRL->>REG: execute_any_tool(tool_name, args)
+    REG->>TOOLS: Deterministic execution
+    TOOLS-->>REG: Structured result + verified sources
+    REG-->>CTRL: Tool response
 
-    Note over CTRL: Log tool call + result
-
-    CTRL->>LLM: Return tool result for synthesis
-    LLM-->>CTRL: Synthesized answer with source citations
-
-    Note over CTRL: Grounding check:<br/>- Evidence supports claims?<br/>- Sources cited?<br/>- No invented rules?
-
-    CTRL-->>API: Response + sources + trace ID
+    CTRL->>LLM: Send tool response content
+    LLM-->>CTRL: Synthesized, grounded answer with official citations
+    CTRL-->>API: AgentResponse (answer, sources, trace_id, status)
     API-->>FE: JSON response
-    FE-->>P: Display answer with source links
-
-    CTRL->>LOG: Write full execution trace
-
-    Note over CTRL: Budget exceeded?<br/>→ Return partial + explanation
-    Note over CTRL: No evidence found?<br/>→ Return insufficient-info response
-    Note over CTRL: API error?<br/>→ Return error, no unbounded retry
-```
-
-## Error & Abstention Flows
-
-```mermaid
-flowchart TD
-    Q["Passenger Question"] --> VALIDATE["Validate Input"]
-    VALIDATE -->|Invalid| REJECT["Return validation error"]
-    VALIDATE -->|Valid| INTENT["LLM: Interpret intent"]
-    
-    INTENT --> TOOLCALL["LLM requests tool call"]
-    TOOLCALL --> TVALID{"Tool & args\nvalid?"}
-    
-    TVALID -->|No| ARGERR["Reject: invalid tool/args"]
-    TVALID -->|Yes| BUDGET{"Budget\nremaining?"}
-    
-    BUDGET -->|No| PARTIAL["Return partial result\n+ budget explanation"]
-    BUDGET -->|Yes| EXEC["Execute tool"]
-    
-    EXEC --> RESULT{"Result\nstatus?"}
-    
-    RESULT -->|Error/Timeout| APIERR["Return error status\nNo unbounded retry"]
-    RESULT -->|Empty| NODATA["Return insufficient-info\nresponse"]
-    RESULT -->|Success| EVIDENCE{"Evidence\nsupports answer?"}
-    
-    EVIDENCE -->|Contradictory| CONFLICT["Acknowledge contradiction\nDo not pick arbitrarily"]
-    EVIDENCE -->|Stale| STALE["Answer + staleness warning"]
-    EVIDENCE -->|Sufficient| SYNTH["Synthesize answer\nCite sources"]
-    
-    SYNTH --> GROUND{"Grounding\ncheck passed?"}
-    GROUND -->|No| REVISE["Revise or abstain"]
-    GROUND -->|Yes| RESPOND["Return sourced answer"]
-
-    style REJECT fill:#ffcdd2
-    style ARGERR fill:#ffcdd2
-    style PARTIAL fill:#fff9c4
-    style APIERR fill:#ffcdd2
-    style NODATA fill:#fff9c4
-    style CONFLICT fill:#fff9c4
-    style STALE fill:#fff9c4
-    style REVISE fill:#fff9c4
-    style RESPOND fill:#c8e6c9
-```
-
-## Dependency Diagram
-
-```mermaid
-graph LR
-    subgraph "Frontend"
-        FE["React App"]
-    end
-
-    subgraph "Backend"
-        APP["Flask app.py"]
-        CTRL["agent/controller.py"]
-        LLM_MOD["agent/llm.py"]
-        T_CLASS["tools/ticket_class.py"]
-        T_STATUS["tools/reservation_status.py"]
-        T_BOOK["tools/booking_guidance.py"]
-        T_CANCEL["tools/cancellation_refund.py"]
-        KS_MOD["knowledge/store.py"]
-        LOG_MOD["logging/tracer.py"]
-    end
-
-    subgraph "External"
-        GEMINI["Gemini API"]
-    end
-
-    FE -->|HTTP| APP
-    APP -->|imports| CTRL
-    CTRL -->|imports| LLM_MOD
-    CTRL -->|imports| T_CLASS
-    CTRL -->|imports| T_STATUS
-    CTRL -->|imports| T_BOOK
-    CTRL -->|imports| T_CANCEL
-    CTRL -->|imports| LOG_MOD
-    LLM_MOD -->|calls| GEMINI
-    T_CLASS -->|imports| KS_MOD
-    T_STATUS -->|imports| KS_MOD
-    T_BOOK -->|imports| KS_MOD
-    T_CANCEL -->|imports| KS_MOD
+    FE-->>P: Display formatted markdown & source links
 ```

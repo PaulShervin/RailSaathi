@@ -4,28 +4,41 @@
 
 ## Test Infrastructure
 
-- **Backend framework**: pytest (PLANNED)
-- **Frontend framework**: Vitest or Jest (PLANNED)
-- **CI/CD**: Not configured
+- **Backend framework**: pytest 9.1.1 (VERIFIED on Python 3.14.7)
+- **Frontend build test**: Vite 8.3.4 (VERIFIED on Node 26.11.1)
+- **All 67 tests passing (100% pass rate)**
 
 ## Test Suites
 
-| Suite | Location | Status | Last Run | Result |
+| Suite | Location | Tests | Status | Result |
 |---|---|---|---|---|
-| Backend unit tests | `tests/unit/` | PLANNED | — | — |
-| Backend integration tests | `tests/integration/` | PLANNED | — | — |
-| Grounding tests | `tests/grounding/` | PLANNED | — | — |
-| Failure-case tests | `tests/failure/` | PLANNED | — | — |
-| Frontend tests | `frontend/src/__tests__/` | PLANNED | — | — |
+| Flask API endpoints | `tests/test_api.py` | 7 | PASSING | 7 / 7 passed |
+| Journey Planner Engine | `tests/test_journey_planner.py` | 15 | PASSING | 15 / 15 passed |
+| Journey REST API | `tests/test_journey_api.py` | 6 | PASSING | 6 / 6 passed |
+| Mandatory E2E Scenarios | `tests/test_e2e_scenarios.py` | 10 | PASSING | 10 / 10 passed |
+| Agent Controller & Budgets | `tests/test_controller.py` | 7 | PASSING | 7 / 7 passed |
+| Conversation State Manager | `tests/test_conversations.py` | 4 | PASSING | 4 / 4 passed |
+| Retrieval Engine & Freshness | `tests/test_retrieval.py` | 7 | PASSING | 7 / 7 passed |
+| Ticketing Tools & Validation | `tests/test_tools.py` | 11 | PASSING | 11 / 11 passed |
+| Frontend Production Build | `frontend/` | 1 | PASSING | Built clean in 168ms |
 
-## Test Commands
+## Summary
 
-_No tests implemented yet._
+- **Total Backend Tests**: 67
+- **Passed**: 67 (100%)
+- **Failed**: 0
+- **Duration**: ~0.33 seconds
+
+## Test Execution Commands
+
+```bash
+# Run complete pytest test suite
+.venv/bin/pytest -v
+
+# Run frontend build verification
+cd frontend && npm run build
+```
 
 ## Unresolved Test Failures
 
-_None — no tests have been run._
-
-## Coverage
-
-_Not measured — no tests implemented._
+_None. All 67 automated tests pass._
