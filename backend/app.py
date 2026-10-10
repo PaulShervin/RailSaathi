@@ -20,7 +20,10 @@ from backend.config import (
     GEMINI_API_KEY, GEMINI_MODEL, GEMINI_TEMPERATURE, GEMINI_MAX_OUTPUT_TOKENS,
     MAX_AGENT_ROUNDS, MAX_TOOL_CALLS, MAX_INPUT_LENGTH, MAX_HISTORY_MESSAGES,
     FLASK_DEBUG, FLASK_PORT, CORS_ORIGINS, DB_PATH, LOG_LEVEL, LOG_DIR,
+    AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_DEFAULT_REGION,
+    BEDROCK_MODEL_ID, RATE_LIMIT_PER_MINUTE,
 )
+from backend.rate_limiter import SlidingWindowRateLimiter, rate_limit
 from backend.knowledge.database import init_database, get_connection, get_all_sources
 from backend.knowledge.ingest import ingest
 from backend.agent.conversations import ConversationManager
@@ -59,9 +62,33 @@ def create_app(test_config: dict | None = None) -> Flask:
         # Ensure schema is up to date
         init_database(DB_PATH)
 
+    # === Rate Limiter ===
+    rate_limiter = SlidingWindowRateLimiter(requests_per_minute=RATE_LIMIT_PER_MINUTE)
+
     # === Initialize LLM Client ===
     llm_client = None
-    if GEMINI_API_KEY and (not test_config or not test_config.get("mock_llm")):
+    llm_provider = "none"
+    llm_model_name = None
+
+    # 1. Check for AWS Bedrock credentials
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and (not test_config or not test_config.get("mock_llm")):
+        try:
+            from backend.agent.bedrock import BedrockClient
+            llm_client = BedrockClient(
+                aws_access_key_id=AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+                aws_session_token=AWS_SESSION_TOKEN,
+                region_name=AWS_DEFAULT_REGION,
+                model_id=BEDROCK_MODEL_ID,
+            )
+            llm_provider = "aws_bedrock"
+            llm_model_name = BEDROCK_MODEL_ID
+            logger.info(f"AWS Bedrock client initialized: model={BEDROCK_MODEL_ID} region={AWS_DEFAULT_REGION}")
+        except Exception as e:
+            logger.error(f"Failed to initialize AWS Bedrock client: {e}")
+
+    # 2. Check for Gemini API key
+    if llm_client is None and GEMINI_API_KEY and (not test_config or not test_config.get("mock_llm")):
         try:
             from backend.agent.llm import GeminiClient
             llm_client = GeminiClient(
@@ -70,15 +97,22 @@ def create_app(test_config: dict | None = None) -> Flask:
                 temperature=GEMINI_TEMPERATURE,
                 max_output_tokens=GEMINI_MAX_OUTPUT_TOKENS,
             )
+            llm_provider = "gemini"
+            llm_model_name = GEMINI_MODEL
             logger.info(f"Gemini client initialized: model={GEMINI_MODEL}")
         except Exception as e:
             logger.error(f"Failed to initialize Gemini client: {e}")
 
+    # 3. Test configuration override or dev mock fallback
     if test_config and test_config.get("llm_client"):
         llm_client = test_config["llm_client"]
+        llm_provider = "test_mock"
+        llm_model_name = "test-mock-client"
     elif llm_client is None and not (test_config and test_config.get("strict_no_llm")):
         from backend.agent.mock_llm import DevMockGeminiClient
         llm_client = DevMockGeminiClient()
+        llm_provider = "dev_mock"
+        llm_model_name = "dev-mock-client"
         logger.info("Using DevMockGeminiClient (development/offline mode)")
 
     # === Initialize Conversation Manager ===
@@ -112,7 +146,9 @@ def create_app(test_config: dict | None = None) -> Flask:
             "status": "healthy" if (db_ok and llm_ok) else "degraded",
             "database": "connected" if db_ok else "missing",
             "llm": "connected" if llm_ok else "not_configured",
-            "model": GEMINI_MODEL if llm_ok else None,
+            "provider": llm_provider,
+            "model": llm_model_name,
+            "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
             "tools_available": get_all_tool_names(),
             "journey_planner": "enabled",
         })
@@ -146,6 +182,7 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     # === Chat Endpoint ===
     @app.route("/api/chat", methods=["POST"])
+    @rate_limit(rate_limiter)
     def chat():
         """Process a passenger question through the AI agent."""
         # Validate content type
@@ -268,6 +305,7 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     # === Journey Plan Endpoint ===
     @app.route("/api/journey/plan", methods=["POST"])
+    @rate_limit(rate_limiter)
     def plan_journey_endpoint():
         """
         Accept a natural language journey request or structured fields,
@@ -360,6 +398,7 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     # === Journey Refine Endpoint ===
     @app.route("/api/journey/refine", methods=["POST"])
+    @rate_limit(rate_limiter)
     def refine_journey_endpoint():
         """
         Refine an existing journey plan with updated constraints or preferences.
