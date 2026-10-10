@@ -7,8 +7,9 @@
 RailSathi AI is a tool-using GenAI application designed with a strict architectural separation:
 1. **LLM Layer**: Interprets passenger natural language goals, extracts intent, and formulates evidence-grounded explanations (Google Gemini 2.0 / AWS Bedrock Converse / DevMock).
 2. **Deterministic Python Layer**: Authoritatively validates constraints, calculates latest acceptable station arrivals, executes geocoding & last-mile transit estimates, filters timetables, ranks candidates, and controls tool execution.
-3. **Security & Rate Limiting Layer**: Enforces per-IP sliding window rate limits, universal CORS policies, and URL allowlist validation.
-4. **Verified Knowledge & Timetable Data Layer**: Official IRCTC policies, NTES train schedules, station registries, and booking allowlists.
+3. **Train & Fare Data Layer (RailRadar Integration)**: Abstracted behind `TrainDataProvider` interface, fetching live timetables (`/v1/trains/between/{from}/{to}`) and journey-specific fares (`/v1/trains/{number}/fare`) from `https://api.railradar.in`, backed by tiered in-memory caching and bounded candidate enrichment.
+4. **Security & Rate Limiting Layer**: Enforces per-IP sliding window rate limits, universal CORS policies, and URL allowlist validation.
+5. **Verified Knowledge Layer**: Official IRCTC policies, NTES station registries, and booking allowlists.
 
 ## Component Architecture
 
@@ -17,6 +18,7 @@ graph TD
     User([Passenger]) -->|Goal / Prompt| FE[React + Vite Frontend]
     FE -->|POST /api/journey/plan| RL[Per-IP Rate Limiter]
     FE -->|POST /api/chat| RL
+    FE -->|GET /api/stations/search| RL
     
     RL --> API[Flask Backend API]
     API -->|Prompt & State| AC[Agent Controller]
@@ -37,52 +39,47 @@ graph TD
     JP --> FEAS
     JP --> RANK
     JP --> BOOK
+    
+    TT --> TDP[TrainDataProvider Interface]
+    TDP -->|Live Production| RR[RailRadarClient + Tiered Cache]
+    TDP -->|Offline / CI| MOCK[MockTrainDataProvider]
+    RR -->|HTTP Bearer Auth| RRAPIS[RailRadar API<br/>api.railradar.in]
 ```
 
 ### 1. Frontend Layer (`Ticketing_Guidance_Module/frontend/`)
 - **Technology**: React 18, Vite, Vanilla CSS design system.
 - **Dual Mode Views**:
-  - **Goal Journey Planner**: Conversational & structured goal input, quick scenario templates, destination station resolution, hero card for Best Feasible Match with timeline step visualizer, Feasible Alternatives comparison, Infeasible Options with constraint breach badges, one-click quick refiners, and verified IRCTC booking handoff buttons.
+  - **Goal Journey Planner**: Conversational & structured goal input, destination station resolution, hero card for Best Feasible Match with timeline visualizer, overnight indicators (`+1d`), quota and fare source attribution, Feasible Alternatives comparison, Infeasible Options with breach badges, and verified IRCTC booking handoff buttons.
   - **Ticketing Guidance**: Interactive chat, topic discovery, source attribution chips, and execution trace logs.
 
 ### 2. Backend REST API Layer (`Ticketing_Guidance_Module/backend/app.py`)
 - **Endpoints**:
-  - `POST /api/journey/plan`: Natural language prompt or structured parameters → structured JourneyPlanResponse.
+  - `POST /api/journey/plan`: Natural language prompt or structured parameters → structured JourneyPlanResponse with bounded live fare enrichment.
   - `POST /api/journey/refine`: Re-evaluates plan with adjusted buffers, times, or classes.
   - `GET /api/journey/options/<request_id>`: Retrieves cached journey evaluation.
+  - `GET /api/stations/search`: Debounced railway station autocomplete lookup.
   - `POST /api/chat`: AI ticketing guidance chat with agent controller.
-  - `GET /api/health`: Health status, model info, and registered tools list.
+  - `GET /api/health`: Health status, active provider, model info, and registered tools list.
   - `GET /api/sources`: Authoritative source repository metadata.
-- **Security & Serving**: In-memory sliding-window IP rate limiting (`backend/rate_limiter.py`), CORS headers, and static production build serving.
 
-### 3. Goal Journey Planning Core (`Ticketing_Guidance_Module/backend/journey/`)
-- **Data Models (`models.py`)**: Strict Pydantic models (`TripRequirements`, `ResolvedLocation`, `StationCandidate`, `LastMileEstimate`, `TrainService`, `JourneyEvaluation`, `BookingHandoff`, `JourneyPlanResponse`).
-- **Location Resolution (`location.py`)**: Resolves venues and cities to coordinates, maps nearby departure/arrival railway hubs (MAS, MS, SBC, YPR, SMVB, NDLS, CSMT, BCT, etc.), and computes deterministic last-mile transfer times.
-- **Timetable Search (`timetable.py`)**: Authoritative Indian Railways schedules, stops, run days, class allocations, and fare structures.
+### 3. RailRadar Integration & Timetable Core (`Ticketing_Guidance_Module/backend/journey/`)
+- **RailRadarClient (`railradar_client.py`)**:
+  - Endpoint mappings: `/v1/trains/between/{from}/{to}`, `/v1/lookup/search/stations`, `/v1/trains/{number}/fare`.
+  - Authentication: `Authorization: Bearer <RAILRADAR_API_KEY>`.
+  - Resiliency: Bounded retries (default 1 retry) for 502/503/504 and network drops; never retries 400/401/404/429.
+  - Caching: Thread-safe `RailRadarCache` with independent TTLs (24h stations, 1h schedules, 30m fares).
+  - Safety: Secret-redacted logging and error reporting.
+- **TrainDataProvider (`timetable.py`)**:
+  - `RailRadarTrainDataProvider`: Normalizes responses into typed `TrainService`, `FareQuote`, and `FareBreakdown` models.
+  - `MockTrainDataProvider`: High-fidelity offline data provider for testing.
+  - `TrainSearchService`: Orchestrates multi-station pair searches, deduplication, and Step 4.5 candidate fare enrichment (capped by `RAILRADAR_MAX_FARE_LOOKUPS_PER_REQUEST = 5`).
+
+### 4. Goal Journey Planning Core (`Ticketing_Guidance_Module/backend/journey/`)
+- **Data Models (`models.py`)**: Strict Pydantic models (`TripRequirements`, `StationCandidate`, `TrainService`, `FareQuote`, `FareBreakdown`, `JourneyEvaluation`, `BookingHandoff`, `JourneyPlanResponse`).
+- **Location Resolution (`location.py`)**: Resolves venues and cities to coordinates, maps nearby departure/arrival railway hubs, and computes deterministic last-mile transfer times.
 - **Feasibility Engine (`feasibility.py`)**:
   - Formula: `latest_acceptable_station_arrival = meeting_start - requested_buffer - estimated_last_mile_duration`
   - Correct date shifting for overnight journeys (`day_offset = 1` or `2`).
   - Strict hard constraint evaluation (arrival deadline, buffer satisfaction, budget ceiling).
 - **Ranking Engine (`ranking.py`)**: Deterministic scoring prioritizing deadline safety, preferred train matches (+35), class matches (+20), duration, and budget.
 - **Booking Handoff (`booking.py`)**: Safe deep link generation strictly validated against approved hosts (`irctc.co.in`, `enquiry.indianrail.gov.in`, `confirmtkt.com`).
-
-### 4. Agent Controller & Tool Registry (`Ticketing_Guidance_Module/backend/agent/` & `backend/tools/`)
-- **Controller**: Enforces tool-call limits (`MAX_TOOL_CALLS = 6`), round limits (`MAX_AGENT_ROUNDS = 4`), schema argument validation, and full execution tracing (`trace_id`).
-- **LLM Integrations**:
-  - `backend/agent/llm.py`: Google GenAI Gemini 2.0 SDK client.
-  - `backend/agent/bedrock.py`: AWS Bedrock Converse provider with streaming and function tool calling.
-  - `backend/agent/mock_llm.py`: High-fidelity deterministic dev mock client.
-- **Unified Tool Registry (13 Tools)**:
-  - `parse_trip_requirements`
-  - `resolve_location`
-  - `find_nearby_stations`
-  - `estimate_last_mile`
-  - `search_trains`
-  - `get_train_details`
-  - `evaluate_journey_feasibility`
-  - `plan_goal_based_journey`
-  - `search_ticketing_guidance`
-  - `explain_ticket_class`
-  - `explain_reservation_status`
-  - `get_booking_steps`
-  - `get_cancellation_refund_guidance`

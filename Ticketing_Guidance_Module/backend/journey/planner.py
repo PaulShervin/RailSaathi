@@ -302,6 +302,12 @@ class JourneyPlanner:
             )
             evaluations.append(ev)
 
+        # Step 4.5: Bounded Fare Enrichment for Shortlisted Candidates
+        self.train_service.enrich_candidate_fares(
+            evaluations=evaluations,
+            requirements=requirements,
+        )
+
         # Step 5: Deterministic Ranking & Assembly
         return self.ranking_engine.rank_and_assemble_plan(
             requirements=requirements,
@@ -314,3 +320,4 @@ class JourneyPlanner:
             tool_calls_made=len(candidate_trains) + 4,
             rounds_used=1,
         )
+

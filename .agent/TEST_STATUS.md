@@ -6,7 +6,7 @@
 
 - **Backend framework**: pytest 9.1.1 (VERIFIED on Python 3.14.7)
 - **Frontend build test**: Vite 8.3.4 (VERIFIED on Node 26.11.1)
-- **All 70 tests passing (100% pass rate)**
+- **Total Tests**: 93 (90 passed, 3 skipped live smoke tests, 0 failed, 100% pass rate)
 
 ## Test Suites
 
@@ -21,21 +21,28 @@
 | Retrieval Engine & Freshness | `Ticketing_Guidance_Module/tests/test_retrieval.py` | 7 | PASSING | 7 / 7 passed |
 | Ticketing Tools & Validation | `Ticketing_Guidance_Module/tests/test_tools.py` | 11 | PASSING | 11 / 11 passed |
 | Sliding-Window Rate Limiter | `Ticketing_Guidance_Module/tests/test_rate_limiter.py` | 3 | PASSING | 3 / 3 passed |
-| Frontend Production Build | `Ticketing_Guidance_Module/frontend/` | 1 | PASSING | Built clean in 168ms |
+| RailRadar Client & Error Mappings | `Ticketing_Guidance_Module/tests/test_railradar_client.py` | 16 | PASSING | 16 / 16 passed |
+| RailRadar Provider & Planner Flow | `Ticketing_Guidance_Module/tests/test_railradar_provider.py` | 4 | PASSING | 4 / 4 passed |
+| RailRadar Live Smoke Suite | `Ticketing_Guidance_Module/tests/test_railradar_smoke.py` | 3 | SKIPPED | Requires `RAILRADAR_API_KEY` |
+| Frontend Production Build | `Ticketing_Guidance_Module/frontend/` | 1 | PASSING | Built clean in 156ms |
 
 ## Summary
 
-- **Total Backend Tests**: 70
-- **Passed**: 70 (100%)
+- **Total Unit & Integration Tests**: 90
+- **Passed**: 90 (100%)
+- **Skipped**: 3 (Live smoke tests waiting for user key)
 - **Failed**: 0
-- **Duration**: ~0.26 seconds
+- **Duration**: ~0.37 seconds
 
 ## Test Execution Commands
 
 ```bash
-# Run complete pytest test suite
+# Run complete pytest test suite (mock & unit tests)
 source .venv/bin/activate
 pytest Ticketing_Guidance_Module/tests/ -v
+
+# Run optional live RailRadar smoke test (requires RAILRADAR_API_KEY in .env)
+RAILRADAR_API_KEY=your_key_here pytest Ticketing_Guidance_Module/tests/test_railradar_smoke.py -v -s
 
 # Run frontend build verification
 cd Ticketing_Guidance_Module/frontend && npm run build
@@ -43,4 +50,4 @@ cd Ticketing_Guidance_Module/frontend && npm run build
 
 ## Unresolved Test Failures
 
-_None. All 70 automated tests pass._
+_None. All 90 automated tests pass._

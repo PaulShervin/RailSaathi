@@ -9,6 +9,14 @@
 - **Impact**: Backend runs with `DevMockGeminiClient` supporting all tool invocations and full UI experience. When live quota is desired, user sets `GEMINI_API_KEY`.
 - **Resolution**: User to provide key when live Gemini API queries are required.
 
+### ISSUE-004: RailRadar API Key Configuration Required for Live Provider
+- **Severity**: Low (MockTrainDataProvider handles offline mode seamlessly)
+- **Discovered**: 2026-10-10 (Session 005)
+- **Description**: `RAILRADAR_API_KEY` is not yet populated in the local `.env`.
+- **Impact**: Backend falls back gracefully to `MockTrainDataProvider` (90/90 tests pass). Live smoke tests (`test_railradar_smoke.py`) are skipped until key is added.
+- **Resolution**: User to set `RAILRADAR_API_KEY=your_key` in `.env` to enable live RailRadar schedule and fare lookups.
+
+
 ## Closed Issues
 
 ### ISSUE-002: Python 3.14 Compatibility Risk

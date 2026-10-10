@@ -606,7 +606,12 @@ export default function App() {
                       </div>
 
                       <div className="timeline-node">
-                        <span className="node-time">{journeyPlan.best_match.train_service.arrival_time}</span>
+                        <span className="node-time">
+                          {journeyPlan.best_match.train_service.arrival_time}
+                          {journeyPlan.best_match.train_service.day_offset > 0 && (
+                            <span className="day-offset-pill">+{journeyPlan.best_match.train_service.day_offset}d</span>
+                          )}
+                        </span>
                         <span className="node-station">{journeyPlan.best_match.train_service.destination_station_name}</span>
                         <span className="node-sub">({journeyPlan.best_match.train_service.destination_station_code})</span>
                       </div>
@@ -632,13 +637,18 @@ export default function App() {
                       <div className="rec-detail-item">
                         <span className="detail-lbl">Recommended Class & Fare</span>
                         <span className="detail-val">
-                          {journeyPlan.best_match.recommended_class || '3A'} — ₹{journeyPlan.best_match.recommended_fare || 830}
+                          {journeyPlan.best_match.recommended_fare
+                            ? `${journeyPlan.best_match.recommended_class || '3A'} — ₹${journeyPlan.best_match.recommended_fare} (${journeyPlan.best_match.fare_quote?.quota_code || 'GN'} Quota)`
+                            : `${journeyPlan.best_match.recommended_class || '3A'} — Fare on IRCTC Handoff`}
                         </span>
                       </div>
                       <div className="rec-detail-item">
-                        <span className="detail-lbl">Data Source & Verification</span>
+                        <span className="detail-lbl">Data Source & Provider</span>
                         <span className="detail-val">
-                          {journeyPlan.best_match.train_service.data_source} ({journeyPlan.best_match.train_service.verified_at})
+                          {journeyPlan.best_match.train_service.data_source}
+                          {journeyPlan.best_match.train_service.verified_at && (
+                            <span className="verified-time"> ({journeyPlan.best_match.train_service.verified_at.substring(0, 10)})</span>
+                          )}
                         </span>
                       </div>
                       <div className="rec-detail-item">
@@ -694,11 +704,13 @@ export default function App() {
                             </span>
                           </div>
                           <p className="alt-timing">
-                            Departs {alt.train_service.departure_time} ({alt.train_service.origin_station_code}) → Arrives {alt.train_service.arrival_time} ({alt.train_service.destination_station_code})
+                            Departs {alt.train_service.departure_time} ({alt.train_service.origin_station_code}) → Arrives {alt.train_service.arrival_time} {alt.train_service.day_offset > 0 ? `(+${alt.train_service.day_offset}d)` : ''} ({alt.train_service.destination_station_code})
                           </p>
                           <div className="alt-footer">
                             <span className="alt-fare">
-                              {alt.recommended_class} (₹{alt.recommended_fare})
+                              {alt.recommended_fare
+                                ? `${alt.recommended_class || '3A'} (₹${alt.recommended_fare})`
+                                : `${alt.recommended_class || '3A'} (Fare at IRCTC)`}
                             </span>
                             {alt.booking_handoff && (
                               <a
@@ -716,6 +728,7 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
 
                 {/* INFEASIBLE / DOES NOT MEET REQUIREMENTS SECTION */}
                 {journeyPlan.infeasible_options?.length > 0 && (

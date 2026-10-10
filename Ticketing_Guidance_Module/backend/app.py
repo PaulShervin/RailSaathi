@@ -153,10 +153,25 @@ def create_app(test_config: dict | None = None) -> Flask:
             "llm": "connected" if llm_ok else "not_configured",
             "provider": llm_provider,
             "model": llm_model_name,
+            "train_data_provider": os.getenv("TRAIN_DATA_PROVIDER", "mock"),
+            "railradar_configured": bool(os.getenv("RAILRADAR_API_KEY")),
             "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
             "tools_available": get_all_tool_names(),
             "journey_planner": "enabled",
         })
+
+    # === Station Search Endpoint ===
+    @app.route("/api/stations/search", methods=["GET"])
+    @rate_limit(rate_limiter)
+    def search_stations_endpoint():
+        """Lookup railway stations with debouncing and rate limit protection."""
+        q = request.args.get("q", "").strip()
+        limit = int(request.args.get("limit", 10))
+        if not q:
+            return jsonify({"stations": [], "total": 0})
+
+        stations = journey_planner.train_service.search_stations(query=q, limit=limit)
+        return jsonify({"stations": stations, "total": len(stations)})
 
     # === Sources Endpoint ===
     @app.route("/api/sources", methods=["GET"])
@@ -184,6 +199,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         except Exception as e:
             logger.error(f"Sources endpoint error: {e}")
             return jsonify({"error": "Failed to retrieve sources"}), 500
+
 
     # === Chat Endpoint ===
     @app.route("/api/chat", methods=["POST"])

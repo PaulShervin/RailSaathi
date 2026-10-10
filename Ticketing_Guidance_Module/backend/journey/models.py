@@ -123,6 +123,36 @@ class IntermediateStop(BaseModel):
     day_number: int = 1
 
 
+class FareBreakdown(BaseModel):
+    """Granular fare breakdown charges returned by RailRadar or tariff tables."""
+    base_fare: float | None = None
+    reservation_charge: float | None = None
+    superfast_charge: float | None = None
+    other_charge: float | None = None
+    tatkal_fare: float | None = None
+    goods_service_tax: float | None = None
+    catering_charge: float | None = None
+    dynamic_fare: float | None = None
+
+
+class FareQuote(BaseModel):
+    """Specific fare quote for a train, class, route, and date."""
+    train_number: str
+    train_name: str | None = None
+    source_station: str
+    destination_station: str
+    journey_date: str
+    class_code: str
+    quota_code: str = "GN"
+    total_fare: float
+    breakdown: FareBreakdown | None = None
+    currency: str = "INR"
+    retrieved_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    data_source: str = "RailRadar API (api.railradar.in)"
+    trace_id: str | None = None
+    is_estimate: bool = True
+
+
 class TrainService(BaseModel):
     """Authoritative train schedule and fare data."""
     train_number: str
@@ -138,10 +168,12 @@ class TrainService(BaseModel):
     runs_on_days: list[str] = Field(default_factory=lambda: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
     classes: list[str] = Field(default_factory=list)
     fares: dict[str, float] = Field(default_factory=dict)
+    fare_quotes: dict[str, FareQuote] = Field(default_factory=dict)
     intermediate_stops: list[dict] = Field(default_factory=list)
     data_source: str = "Indian Railways National Train Enquiry System (NTES)"
     verified_at: str = "2026-10-10"
     is_live_status: bool = False
+    provider_trace_id: str | None = None
     availability_status: dict[str, str] = Field(default_factory=dict)  # e.g., {"3A": "SCHEDULED_SERVICE"}
 
 
@@ -197,7 +229,9 @@ class JourneyEvaluation(BaseModel):
     explanation: str
     recommended_class: str | None = None
     recommended_fare: float | None = None
+    fare_quote: FareQuote | None = None
     booking_handoff: BookingHandoff | None = None
+
 
 
 class JourneyPlanResponse(BaseModel):

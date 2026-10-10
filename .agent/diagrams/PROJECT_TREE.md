@@ -15,16 +15,17 @@ graph TB
             end
 
             subgraph "Backend API 🟢"
-                API["Flask 3.1 REST API Layer<br/>Rate Limiting & Static Hosting<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/app.py</i>"]
+                API["Flask 3.1 REST API Layer<br/>Rate Limiting, Station Autocomplete & Static Hosting<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/app.py</i>"]
 
                 subgraph "Journey Planning Core 🟢"
-                    MOD["Data Models & Schemas<br/>Pydantic 2.14<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/models.py</i>"]
+                    MOD["Data Models & Schemas<br/>Pydantic 2.14 (FareQuote, FareBreakdown)<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/models.py</i>"]
                     LOC["Location Resolution & Last-Mile<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/location.py</i>"]
-                    TT["Timetable & Fares Service<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/timetable.py</i>"]
+                    TT["Timetable & Fares Service<br/>TrainDataProvider Interface<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/timetable.py</i>"]
+                    RR["RailRadar Client & Tiered Cache<br/>api.railradar.in Adapter<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/railradar_client.py</i>"]
                     FEAS["Feasibility & Deadline Engine<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/feasibility.py</i>"]
                     RANK["Ranking & Trade-off Engine<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/ranking.py</i>"]
                     BOOK["Booking Handoff Allowlist<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/booking.py</i>"]
-                    PLAN["Journey Planner Orchestrator<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/planner.py</i>"]
+                    PLAN["Journey Planner Orchestrator<br/>Bounded Live Fare Enrichment<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/backend/journey/planner.py</i>"]
                 end
 
                 subgraph "Agent & Controller 🟢"
@@ -41,7 +42,7 @@ graph TB
             end
 
             subgraph "Testing Suite 🟢"
-                TESTS["70 Automated Tests (100% Passing)<br/>- API & Journey Endpoints<br/>- Feasibility & Math Calculations<br/>- 10 Mandatory E2E Scenarios<br/>- Sliding Window Rate Limiter<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/tests/</i>"]
+                TESTS["90 Unit & Integration Tests (100% Passing)<br/>+ 3 Live Smoke Tests (RailRadar)<br/>- RailRadar Client, Normalization & HTTP Mappings<br/>- API & Journey Endpoints<br/>- Feasibility & Math Calculations<br/>- 10 Mandatory E2E Scenarios<br/>🟢 IMPLEMENTED<br/><i>Ticketing_Guidance_Module/tests/</i>"]
             end
         end
 
@@ -56,6 +57,7 @@ graph TB
     API --> CTRL
     PLAN --> LOC
     PLAN --> TT
+    TT --> RR
     PLAN --> FEAS
     PLAN --> RANK
     PLAN --> BOOK
@@ -68,6 +70,7 @@ graph TB
     style MOD fill:#c8e6c9,stroke:#2e7d32
     style LOC fill:#c8e6c9,stroke:#2e7d32
     style TT fill:#c8e6c9,stroke:#2e7d32
+    style RR fill:#c8e6c9,stroke:#2e7d32
     style FEAS fill:#c8e6c9,stroke:#2e7d32
     style RANK fill:#c8e6c9,stroke:#2e7d32
     style BOOK fill:#c8e6c9,stroke:#2e7d32

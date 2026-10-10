@@ -5,14 +5,14 @@
 ## Scope Constraints
 
 ### In Scope
-- **Goal-Based Train Journey Planning Module**: Resolving real-world passenger goals, destination venues, arrival station discovery, last-mile transit estimation, scheduled timetable search, deterministic deadline and arrival buffer calculations, constraint filtering, transparent scoring, and safe official IRCTC booking handoff links.
+- **Goal-Based Train Journey Planning Module**: Resolving real-world passenger goals, destination venues, arrival station discovery, last-mile transit estimation, live RailRadar train timetable search & fare lookups, deterministic deadline and arrival buffer calculations, constraint filtering, transparent scoring, and safe official IRCTC booking handoff links.
 - **AI Ticketing Guidance Module**: Explaining ticket classes, reservation terms, booking processes, cancellation and refund policies.
 - **Data Provenance**: Source-backed explanations with official URLs, verification timestamps, and explicit uncertainty acknowledgment.
 
 ### Explicitly Excluded
 - ❌ Automatic ticket purchasing, payments, ticket issuance, or automated IRCTC account logins.
 - ❌ Collecting passwords, payment credentials, identity documents, or unnecessary personal data.
-- ❌ Claiming live seat availability or confirmed reservations unless an authorized, live integration supplies it.
+- ❌ Claiming live seat availability or confirmed reservations from schedule or fare endpoints without authorized real-time reservation integration.
 - ❌ Presenting synthetic schedules, fares, or reservation statuses as live verified data.
 - ❌ Inventing train numbers, train names, station codes, fares, schedules, availability, map distances, or booking URLs.
 - ❌ Allowing arbitrary booking URLs (all links must pass hostname allowlisting).
@@ -25,6 +25,13 @@
   `latest_acceptable_station_arrival = meeting_start - requested_buffer - estimated_last_mile_duration`
 - **No Double Subtraction**: Buffer begins AFTER the last-mile transfer at the venue, not at station arrival.
 - **Hard Constraints vs Soft Preferences**: Hard constraints (arrival deadline, required buffer) cannot be overridden by soft preferences (lower fare, preferred train, preferred class). Infeasible journeys must never be presented as the best match.
+
+## RailRadar Provider & Secret Constraints
+
+- **Secret Protection**: `RAILRADAR_API_KEY` must never be hardcoded, printed to console/logs, returned to frontend, included in exceptions, or stored in Git.
+- **Request Budgets**: Fare lookups must be bounded to shortlisted top candidates (default `RAILRADAR_MAX_FARE_LOOKUPS_PER_REQUEST = 5`). Never query all classes for all returned trains.
+- **No Synthetic Fallback**: If RailRadar is configured in production and fails, return a clear error/unavailable status. Do NOT silently substitute synthetic mock data and label it as real.
+- **Schedule vs Seat Availability**: RailRadar timetable search and fare endpoints provide schedule and tariff estimates; they do NOT prove confirmed seat availability.
 
 ## Security & Reliability Constraints
 

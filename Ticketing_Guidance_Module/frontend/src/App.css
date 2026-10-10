@@ -554,9 +554,27 @@ body {
   color: var(--text-muted);
 }
 
+.day-offset-pill {
+  display: inline-block;
+  margin-left: 0.35rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 4px;
+}
+
+.verified-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 .venue-time {
   color: #34d399;
 }
+
 
 .highlight-meet {
   color: #38bdf8 !important;

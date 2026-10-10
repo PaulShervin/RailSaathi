@@ -128,3 +128,31 @@
 - **Decision**: Restructure application components under `Ticketing_Guidance_Module/` directory containing `backend/`, `frontend/`, and `tests/`.
 - **Rationale**: Aligns module structure cleanly for subproject isolation within the broader RailSaathi system while maintaining centralized `.agent/` project memory.
 - **Related files**: `Ticketing_Guidance_Module/*`, `.gitignore`
+
+---
+
+### DEC-016 — RailRadar API Client Adapter & Provider Interface
+- **Date**: 2026-10-10
+- **Status**: ACCEPTED
+- **Decision**: Integrate RailRadar (`https://api.railradar.in`) behind an abstract `TrainDataProvider` interface with `RailRadarTrainDataProvider` and `MockTrainDataProvider` implementations.
+- **Rationale**: Isolates external HTTP communication, authentication headers, error mapping (400, 401, 404, 429, 503), retries, and normalization from the deterministic journey feasibility and ranking engine. Retains deterministic mock provider for CI/CD and offline testing without risking credentials or quotas.
+- **Related files**: `Ticketing_Guidance_Module/backend/journey/railradar_client.py`, `Ticketing_Guidance_Module/backend/journey/timetable.py`
+
+---
+
+### DEC-017 — Bounded Candidate Fare Enrichment
+- **Date**: 2026-10-10
+- **Status**: ACCEPTED
+- **Decision**: Train searches retrieve scheduled timetables without fan-out fare queries for all trains and classes. Only top shortlisted candidates (capped by `RAILRADAR_MAX_FARE_LOOKUPS_PER_REQUEST = 5`) trigger journey-specific fare lookups for the passenger's requested class and quota (`GN`).
+- **Rationale**: Prevents API quota exhaustion, reduces latency, and protects external request budgets while still providing exact fare calculations for the most promising travel options.
+- **Related files**: `Ticketing_Guidance_Module/backend/journey/timetable.py`, `Ticketing_Guidance_Module/backend/journey/planner.py`
+
+---
+
+### DEC-018 — Tiered In-Memory Caching for RailRadar
+- **Date**: 2026-10-10
+- **Status**: ACCEPTED
+- **Decision**: Implement a thread-safe tiered cache (`RailRadarCache`) with distinct TTLs: 24 hours for station lookups, 1 hour for train timetables, and 30 minutes for journey fares.
+- **Rationale**: Minimizes duplicate queries for identical origin/destination/date pairs, improves response times, and respects data freshness rules without external database infrastructure.
+- **Related files**: `Ticketing_Guidance_Module/backend/journey/railradar_client.py`
+
