@@ -40,6 +40,8 @@ from backend.journey.railradar_client import (
     RailRadarAuthError,
     RailRadarRateLimitError,
     RailRadarUnavailableError,
+    RailRadarQuotaExhaustedError,
+    RailRadarRateLimitWaitError,
 )
 
 logger = logging.getLogger("railsaathi.journey.timetable")
@@ -155,6 +157,15 @@ class TrainDataProvider(abc.ABC):
     def get_train_by_number_or_name(self, query: str) -> Optional[TrainService]:
         """Lookup a specific train service by number or partial name."""
         pass
+
+    def get_cached_trains(
+        self,
+        origin_station_code: str,
+        destination_station_code: str,
+        journey_date: Optional[str] = None,
+    ) -> Optional[List[TrainService]]:
+        """Retrieve cached train schedules if available without making outbound requests."""
+        return None
 
 
 # =====================================================================
@@ -352,6 +363,209 @@ TRAIN_DATABASE: List[Dict[str, Any]] = [
             {"station_code": "KJM", "station_name": "Krishnarajapuram", "arrival_time": "09:33", "departure_time": "09:35", "halt_minutes": 2},
             {"station_code": "KPD", "station_name": "Katpadi Jn", "arrival_time": "12:55", "departure_time": "13:00", "halt_minutes": 5},
         ],
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    # === Corridor: Chennai Egmore (MS) to Tirunelveli (TEN) ===
+    {
+        "train_number": "12633",
+        "train_name": "KANYAKUMARI EXPRESS (OVERNIGHT)",
+        "origin_station_code": "MS",
+        "origin_station_name": "Chennai Egmore",
+        "destination_station_code": "TEN",
+        "destination_station_name": "Tirunelveli Junction",
+        "departure_time": "17:20",
+        "arrival_time": "03:20",
+        "day_offset": 1,
+        "duration_minutes": 600,  # 10h 00m
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["1A", "2A", "3A", "SL"],
+        "fares": {"1A": 2250.0, "2A": 1350.0, "3A": 950.0, "SL": 360.0},
+        "intermediate_stops": [
+            {"station_code": "TBM", "station_name": "Tambaram", "arrival_time": "17:48", "departure_time": "17:50", "halt_minutes": 2},
+            {"station_code": "TPJ", "station_name": "Tiruchchirappalli Jn", "arrival_time": "23:05", "departure_time": "23:10", "halt_minutes": 5},
+            {"station_code": "MDU", "station_name": "Madurai Jn", "arrival_time": "01:25", "departure_time": "01:30", "halt_minutes": 5},
+        ],
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    {
+        "train_number": "16105",
+        "train_name": "TIRUCHENDUR EXPRESS (OVERNIGHT)",
+        "origin_station_code": "MS",
+        "origin_station_name": "Chennai Egmore",
+        "destination_station_code": "TEN",
+        "destination_station_name": "Tirunelveli Junction",
+        "departure_time": "16:05",
+        "arrival_time": "05:00",
+        "day_offset": 1,
+        "duration_minutes": 775,  # 12h 55m
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["2A", "3A", "SL", "2S"],
+        "fares": {"2A": 1280.0, "3A": 900.0, "SL": 340.0, "2S": 190.0},
+        "intermediate_stops": [
+            {"station_code": "TBM", "station_name": "Tambaram", "arrival_time": "16:33", "departure_time": "16:35", "halt_minutes": 2},
+            {"station_code": "TPJ", "station_name": "Tiruchchirappalli Jn", "arrival_time": "22:50", "departure_time": "22:55", "halt_minutes": 5},
+            {"station_code": "MDU", "station_name": "Madurai Jn", "arrival_time": "01:45", "departure_time": "01:50", "halt_minutes": 5},
+        ],
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    {
+        "train_number": "20635",
+        "train_name": "ANANTHAPURI EXPRESS (OVERNIGHT)",
+        "origin_station_code": "MS",
+        "origin_station_name": "Chennai Egmore",
+        "destination_station_code": "TEN",
+        "destination_station_name": "Tirunelveli Junction",
+        "departure_time": "19:50",
+        "arrival_time": "06:05",
+        "day_offset": 1,
+        "duration_minutes": 615,  # 10h 15m
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["1A", "2A", "3A", "SL"],
+        "fares": {"1A": 2300.0, "2A": 1380.0, "3A": 970.0, "SL": 370.0},
+        "intermediate_stops": [
+            {"station_code": "TBM", "station_name": "Tambaram", "arrival_time": "20:18", "departure_time": "20:20", "halt_minutes": 2},
+            {"station_code": "TPJ", "station_name": "Tiruchchirappalli Jn", "arrival_time": "01:45", "departure_time": "01:50", "halt_minutes": 5},
+            {"station_code": "MDU", "station_name": "Madurai Jn", "arrival_time": "04:00", "departure_time": "04:05", "halt_minutes": 5},
+        ],
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    {
+        "train_number": "12631",
+        "train_name": "NELLAI SUPERFAST EXPRESS (OVERNIGHT)",
+        "origin_station_code": "MS",
+        "origin_station_name": "Chennai Egmore",
+        "destination_station_code": "TEN",
+        "destination_station_name": "Tirunelveli Junction",
+        "departure_time": "20:10",
+        "arrival_time": "06:40",
+        "day_offset": 1,
+        "duration_minutes": 630,  # 10h 30m
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["1A", "2A", "3A", "SL"],
+        "fares": {"1A": 2320.0, "2A": 1390.0, "3A": 980.0, "SL": 375.0},
+        "intermediate_stops": [
+            {"station_code": "TBM", "station_name": "Tambaram", "arrival_time": "20:38", "departure_time": "20:40", "halt_minutes": 2},
+            {"station_code": "TPJ", "station_name": "Tiruchchirappalli Jn", "arrival_time": "02:10", "departure_time": "02:15", "halt_minutes": 5},
+            {"station_code": "MDU", "station_name": "Madurai Jn", "arrival_time": "04:20", "departure_time": "04:25", "halt_minutes": 5},
+        ],
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    {
+        "train_number": "20665",
+        "train_name": "MS TEN VANDE BHARAT",
+        "origin_station_code": "MS",
+        "origin_station_name": "Chennai Egmore",
+        "destination_station_code": "TEN",
+        "destination_station_name": "Tirunelveli Junction",
+        "departure_time": "14:50",
+        "arrival_time": "22:40",
+        "day_offset": 0,
+        "duration_minutes": 470,  # 7h 50m
+        "runs_on_days": ["Mon", "Tue", "Wed", "Fri", "Sat", "Sun"],  # Except Thu
+        "classes": ["CC", "EC"],
+        "fares": {"CC": 1610.0, "EC": 3005.0},
+        "intermediate_stops": [
+            {"station_code": "TBM", "station_name": "Tambaram", "arrival_time": "15:13", "departure_time": "15:15", "halt_minutes": 2},
+            {"station_code": "TPJ", "station_name": "Tiruchchirappalli Jn", "arrival_time": "18:50", "departure_time": "18:55", "halt_minutes": 5},
+            {"station_code": "MDU", "station_name": "Madurai Jn", "arrival_time": "20:30", "departure_time": "20:35", "halt_minutes": 5},
+        ],
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    {
+        "train_number": "20605",
+        "train_name": "MS TEN VB SPECIAL",
+        "origin_station_code": "MS",
+        "origin_station_name": "Chennai Egmore",
+        "destination_station_code": "TEN",
+        "destination_station_name": "Tirunelveli Junction",
+        "departure_time": "06:00",
+        "arrival_time": "13:50",
+        "day_offset": 0,
+        "duration_minutes": 470,  # 7h 50m
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["CC", "EC"],
+        "fares": {"CC": 1610.0, "EC": 3005.0},
+        "intermediate_stops": [
+            {"station_code": "TBM", "station_name": "Tambaram", "arrival_time": "06:23", "departure_time": "06:25", "halt_minutes": 2},
+            {"station_code": "TPJ", "station_name": "Tiruchchirappalli Jn", "arrival_time": "10:00", "departure_time": "10:05", "halt_minutes": 5},
+            {"station_code": "MDU", "station_name": "Madurai Jn", "arrival_time": "11:40", "departure_time": "11:45", "halt_minutes": 5},
+        ],
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    # === Intermediate Junction Corridor: Chennai <-> Tiruchirappalli (TPJ) ===
+    {
+        "train_number": "12635",
+        "train_name": "VAIGAI SF EXPRESS",
+        "origin_station_code": "MS",
+        "origin_station_name": "Chennai Egmore",
+        "destination_station_code": "TPJ",
+        "destination_station_name": "Tiruchchirappalli Jn",
+        "departure_time": "13:50",
+        "arrival_time": "18:40",
+        "day_offset": 0,
+        "duration_minutes": 290,
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["CC", "2S"],
+        "fares": {"CC": 555.0, "2S": 165.0},
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    {
+        "train_number": "16127",
+        "train_name": "GURUVAYUR EXPRESS (LEG 1)",
+        "origin_station_code": "MS",
+        "origin_station_name": "Chennai Egmore",
+        "destination_station_code": "TPJ",
+        "destination_station_name": "Tiruchchirappalli Jn",
+        "departure_time": "09:45",
+        "arrival_time": "14:50",
+        "day_offset": 0,
+        "duration_minutes": 305,
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["2S", "SL", "3A", "2A"],
+        "fares": {"SL": 235.0, "3A": 630.0, "2A": 890.0},
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    # === Intermediate Junction Corridor: Tiruchirappalli (TPJ) <-> Tirunelveli (TEN) ===
+    {
+        "train_number": "16845",
+        "train_name": "TPJ TEN EXPRESS",
+        "origin_station_code": "TPJ",
+        "origin_station_name": "Tiruchchirappalli Jn",
+        "destination_station_code": "TEN",
+        "destination_station_name": "Tirunelveli Junction",
+        "departure_time": "16:05",
+        "arrival_time": "21:30",
+        "day_offset": 0,
+        "duration_minutes": 325,
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["2S", "SL"],
+        "fares": {"2S": 140.0, "SL": 215.0},
+        "data_source": "Indian Railways National Train Enquiry System (NTES)",
+        "verified_at": "2026-10-10",
+    },
+    {
+        "train_number": "22627",
+        "train_name": "TPJ TVC INTERCITY EXPRESS",
+        "origin_station_code": "TPJ",
+        "origin_station_name": "Tiruchchirappalli Jn",
+        "destination_station_code": "TEN",
+        "destination_station_name": "Tirunelveli Junction",
+        "departure_time": "07:20",
+        "arrival_time": "12:15",
+        "day_offset": 0,
+        "duration_minutes": 295,
+        "runs_on_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+        "classes": ["2S", "CC"],
+        "fares": {"2S": 155.0, "CC": 530.0},
         "data_source": "Indian Railways National Train Enquiry System (NTES)",
         "verified_at": "2026-10-10",
     },
@@ -674,9 +888,35 @@ class RailRadarTrainDataProvider(TrainDataProvider):
             logger.error(f"RailRadar search_trains failed: {e.message}")
             raise
 
+        return self._normalize_train_response(res, origin_station_code, destination_station_code)
+
+    def get_cached_trains(
+        self,
+        origin_station_code: str,
+        destination_station_code: str,
+        journey_date: Optional[str] = None,
+    ) -> Optional[List[TrainService]]:
+        """Retrieve train schedules from unexpired cache without consuming quota or making network calls."""
+        res = self.client.get_cached_trains_between_stations(
+            origin_station_code=origin_station_code,
+            destination_station_code=destination_station_code,
+            journey_date=journey_date,
+            live=False,
+        )
+        if res is None:
+            return None
+        return self._normalize_train_response(res, origin_station_code, destination_station_code)
+
+    def _normalize_train_response(
+        self,
+        res: Dict[str, Any],
+        origin_station_code: str,
+        destination_station_code: str,
+    ) -> List[TrainService]:
         data = res.get("data", {})
         trace_id = res.get("trace_id")
         retrieved_at = res.get("retrieved_at") or datetime.now().isoformat()
+        is_cached_item = bool(res.get("cached", False))
 
         # Parse trains array
         train_list: List[Dict[str, Any]] = []
@@ -699,8 +939,10 @@ class RailRadarTrainDataProvider(TrainDataProvider):
             if not isinstance(item, dict):
                 continue
 
-            t_num = str(item.get("number") or item.get("train_number") or "").strip()
-            t_name = str(item.get("name") or item.get("train_name") or f"Train {t_num}").strip()
+            train_obj = item.get("train") if isinstance(item.get("train"), dict) else {}
+
+            t_num = str(train_obj.get("trainNumber") or train_obj.get("number") or item.get("trainNumber") or item.get("number") or item.get("train_number") or "").strip()
+            t_name = str(train_obj.get("trainName") or train_obj.get("name") or item.get("trainName") or item.get("name") or item.get("train_name") or f"Train {t_num}").strip()
 
             from_obj = item.get("from") if isinstance(item.get("from"), dict) else header_from
             to_obj = item.get("to") if isinstance(item.get("to"), dict) else header_to
@@ -732,17 +974,21 @@ class RailRadarTrainDataProvider(TrainDataProvider):
             dur_val = item.get("duration") or item.get("duration_minutes") or 0
             dur_mins = parse_duration_to_minutes(dur_val)
 
-            # Running days
-            run_days = item.get("runDays") or item.get("runs_on_days") or [
+            # Running days (normalize 'mon' -> 'Mon')
+            run_days_raw = train_obj.get("runDays") or item.get("runDays") or item.get("runs_on_days") or [
                 "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"
             ]
-            if isinstance(run_days, str):
-                run_days = [d.strip() for d in run_days.split(",") if d.strip()]
+            if isinstance(run_days_raw, str):
+                run_days_raw = [d.strip() for d in run_days_raw.split(",") if d.strip()]
+
+            run_days = [d.capitalize()[:3] for d in run_days_raw] if isinstance(run_days_raw, list) else ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
             # Available classes
-            classes = item.get("classes") or []
+            classes = train_obj.get("classes") or item.get("classes") or []
             if isinstance(classes, str):
                 classes = [c.strip().upper() for c in classes.split(",") if c.strip()]
+
+            source_label = "RailRadar API (Cached Schedule)" if is_cached_item else "RailRadar API (api.railradar.in)"
 
             service = TrainService(
                 train_number=t_num,
@@ -759,7 +1005,7 @@ class RailRadarTrainDataProvider(TrainDataProvider):
                 classes=classes,
                 fares={},  # Fares will be enriched for shortlisted candidates
                 intermediate_stops=item.get("intermediate_stops", []),
-                data_source="RailRadar API (api.railradar.in)",
+                data_source=source_label,
                 verified_at=retrieved_at,
                 is_live_status=bool(item.get("isLive", False)),
                 provider_trace_id=trace_id,
@@ -799,11 +1045,11 @@ class RailRadarTrainDataProvider(TrainDataProvider):
         trace_id = res.get("trace_id")
         retrieved_at = res.get("retrieved_at") or datetime.now().isoformat()
 
-        total_fare = data.get("totalFare")
+        breakdown_data = data.get("breakdown") or {}
+        total_fare = data.get("totalFare") or breakdown_data.get("totalFare")
         if total_fare is None:
             return None
 
-        breakdown_data = data.get("breakdown") or {}
         breakdown = FareBreakdown(
             base_fare=breakdown_data.get("baseFare"),
             reservation_charge=breakdown_data.get("reservationCharge"),
@@ -879,6 +1125,40 @@ class TrainSearchService:
     def __init__(self, provider: Optional[TrainDataProvider] = None):
         self.provider = provider or get_train_data_provider()
 
+    def get_cached_trains(
+        self,
+        origin_stations: List[str],
+        destination_stations: List[str],
+        journey_date: Optional[str] = None,
+        preferred_class: Optional[str] = None,
+    ) -> List[TrainService]:
+        """Retrieve unexpired cached train services across station pairs without making outbound calls."""
+        origin_codes = [s.strip().upper() for s in origin_stations if s.strip()]
+        dest_codes = [s.strip().upper() for s in destination_stations if s.strip()]
+        seen_train_numbers: Set[str] = set()
+        cached_trains: List[TrainService] = []
+
+        if not hasattr(self.provider, "get_cached_trains"):
+            return []
+
+        for orig in origin_codes:
+            for dest in dest_codes:
+                try:
+                    res = self.provider.get_cached_trains(
+                        origin_station_code=orig,
+                        destination_station_code=dest,
+                        journey_date=journey_date,
+                    )
+                    if res:
+                        for t in res:
+                            if t.train_number not in seen_train_numbers:
+                                seen_train_numbers.add(t.train_number)
+                                cached_trains.append(t)
+                except Exception as e:
+                    logger.debug(f"Error checking cache for {orig}->{dest}: {e}")
+
+        return cached_trains
+
     def search_trains(
         self,
         origin_stations: List[str],
@@ -894,9 +1174,57 @@ class TrainSearchService:
         seen_train_numbers: Set[str] = set()
         aggregated: List[TrainService] = []
 
-        # Query each station pair
+        # 1. Check usable cached schedules first for all candidate pairs
         for orig in origin_codes:
             for dest in dest_codes:
+                if hasattr(self.provider, "get_cached_trains"):
+                    try:
+                        cached_results = self.provider.get_cached_trains(
+                            origin_station_code=orig,
+                            destination_station_code=dest,
+                            journey_date=journey_date,
+                        )
+                        if isinstance(cached_results, list):
+                            for t in cached_results:
+                                if t.train_number not in seen_train_numbers:
+                                    seen_train_numbers.add(t.train_number)
+                                    aggregated.append(t)
+                    except Exception:
+                        pass
+
+        # 2. Check quota availability before attempting live requests
+        has_quota = True
+        try:
+            if hasattr(self.provider, "client") and hasattr(self.provider.client, "quota_manager"):
+                qm = getattr(self.provider.client, "quota_manager")
+                if hasattr(qm, "check_quota_available"):
+                    res = qm.check_quota_available(required_amount=1, allow_reserve=False)
+                    if isinstance(res, tuple) and len(res) >= 2:
+                        has_quota = bool(res[0])
+        except Exception:
+            has_quota = True
+
+        if not has_quota:
+            if aggregated:
+                # Usable cached schedules found; return without attempting live calls
+                return aggregated
+            # Quota exhausted and no usable cached schedules; invoke provider to trigger RailRadarQuotaExhaustedError
+            if origin_codes and dest_codes:
+                self.provider.search_trains(
+                    origin_station_code=origin_codes[0],
+                    destination_station_code=dest_codes[0],
+                    journey_date=journey_date,
+                    preferred_class=preferred_class,
+                )
+            return []
+
+        # 3. Query each station pair with budget-conscious deduplication
+        pairs_queried = 0
+        for orig in origin_codes:
+            for dest in dest_codes:
+                if pairs_queried >= 2 and len(aggregated) >= 4:
+                    # Sufficient train services discovered from primary terminals; stop to conserve RPM/quota
+                    break
                 try:
                     results = self.provider.search_trains(
                         origin_station_code=orig,
@@ -904,10 +1232,20 @@ class TrainSearchService:
                         journey_date=journey_date,
                         preferred_class=preferred_class,
                     )
+                    pairs_queried += 1
                     for t in results:
                         if t.train_number not in seen_train_numbers:
                             seen_train_numbers.add(t.train_number)
                             aggregated.append(t)
+                except RailRadarQuotaExhaustedError:
+                    if aggregated:
+                        logger.warning(f"Quota exhausted during search; returning {len(aggregated)} partial results")
+                        break
+                    raise
+                except (RailRadarAuthError, RailRadarRateLimitError, RailRadarUnavailableError, RailRadarRateLimitWaitError):
+                    if aggregated:
+                        break
+                    raise
                 except Exception as e:
                     logger.warning(f"Failed to query trains for pair {orig}->{dest}: {e}")
 
@@ -928,17 +1266,26 @@ class TrainSearchService:
     ) -> None:
         """
         Enrich shortlisted candidates with journey-specific fares from the provider.
-        Prioritizes feasible candidates first, then closest-to-deadline infeasible candidates.
+        Prioritizes top feasible candidates (up to max_lookups, default 3), avoiding unnecessary fare lookups.
         """
         if not evaluations or max_lookups <= 0:
             return
 
-        # Sort candidates for fare lookup priority: feasible first, then best score
-        candidates_to_enrich = sorted(
-            evaluations,
-            key=lambda e: (1 if e.is_feasible else 0, e.score),
-            reverse=True,
-        )[:max_lookups]
+        # Prioritize strictly feasible candidates
+        feasible_evals = [e for e in evaluations if e.is_feasible]
+        if feasible_evals:
+            candidates_to_enrich = sorted(
+                feasible_evals,
+                key=lambda e: e.score,
+                reverse=True,
+            )[:max_lookups]
+        else:
+            # If no candidate is feasible, enrich at most 1 top-scoring alternative
+            candidates_to_enrich = sorted(
+                evaluations,
+                key=lambda e: e.score,
+                reverse=True,
+            )[:1]
 
         target_class = requirements.preferred_class or "3A"
         journey_date = requirements.meeting_date

@@ -74,16 +74,42 @@ class TripRequirements(BaseModel):
         return None
 
 
+class GeocodedPlaceCandidate(BaseModel):
+    """Normalized candidate place record returned by geocoding providers."""
+    place_name: str
+    formatted_address: str
+    latitude: float
+    longitude: float
+    city: str | None = None
+    state: str | None = None
+    country: str = "India"
+    provider: str = "Nominatim (OpenStreetMap)"
+    provider_place_id: str | None = None
+    confidence: float = 0.8
+    is_ambiguous: bool = False
+    retrieved_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    raw_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ResolvedLocation(BaseModel):
     """Geographic resolution for a venue or city."""
     query: str
     display_name: str
     city: str
     state: str = "India"
-    latitude: float
-    longitude: float
-    provider: str = "RailSathi Geo Registry"
+    country: str = "India"
+    latitude: float | None = None
+    longitude: float | None = None
+    provider: str = "RailSathi Place Registry"
+    provider_place_id: str | None = None
     confidence: float = 1.0
+    resolved_address: str | None = None
+    is_cached: bool = False
+    requires_user_clarification: bool = False
+    clarification_options: list[str] = Field(default_factory=list)
+    candidates: list[GeocodedPlaceCandidate] = Field(default_factory=list)
+    resolution_timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    resolution_error: str | None = None
 
 
 class StationCandidate(BaseModel):
@@ -97,6 +123,8 @@ class StationCandidate(BaseModel):
     estimated_last_mile_minutes: int | None = None
     last_mile_mode: str | None = None  # e.g., 'cab', 'auto', 'metro', 'transit'
     is_major_hub: bool = True
+    station_type: str = "major_intercity_terminal"  # 'major_intercity_terminal', 'intercity_junction', 'intercity_halt', 'suburban_halt', 'metro'
+    supports_intercity: bool = True
     provider: str = "RailSathi Station Registry"
 
 
@@ -104,11 +132,14 @@ class LastMileEstimate(BaseModel):
     """Last-mile journey estimate from railway station to venue."""
     origin_station_code: str
     destination_venue: str
-    distance_km: float
-    duration_minutes: int
+    distance_km: float | None = None
+    duration_minutes: int | None = None
     transit_mode: str = "cab"
-    confidence: str = "verified_estimate"  # 'verified_estimate', 'user_provided', 'unknown'
+    confidence: str = "verified_estimate"  # 'verified_estimate', 'cached_estimate', 'heuristic_estimate', 'unknown'
     provider: str = "RailSathi Transit Estimator"
+    source_type: str = "heuristic_urban_model"  # 'routing_provider', 'heuristic_urban_model', 'cached_route'
+    is_heuristic: bool = True
+    is_cached: bool = False
     source_url: str = "https://enquiry.indianrail.gov.in"
     verified_at: str = "2026-10-10"
 
@@ -234,6 +265,64 @@ class JourneyEvaluation(BaseModel):
 
 
 
+class ConnectingJourneyLeg(BaseModel):
+    """Single leg of a multi-train connecting journey."""
+    leg_number: int  # 1 or 2
+    train_service: TrainService
+    from_station_code: str
+    from_station_name: str
+    to_station_code: str
+    to_station_name: str
+    departure_datetime_iso: str
+    arrival_datetime_iso: str
+    duration_minutes: int
+    recommended_class: str | None = None
+    fare_quote: FareQuote | None = None
+    booking_handoff: BookingHandoff | None = None
+
+
+class ConnectingJourneyEvaluation(BaseModel):
+    """Multi-leg train journey evaluation with transfer layover validation."""
+    candidate_id: str
+    leg_1: ConnectingJourneyLeg
+    leg_2: ConnectingJourneyLeg
+    interchange_station_code: str
+    interchange_station_name: str
+    layover_minutes: int
+    total_journey_duration_minutes: int
+    
+    last_mile_origin_station: str
+    last_mile_destination_venue: str
+    last_mile_duration_minutes: int | None
+    last_mile_distance_km: float | None
+    
+    departure_datetime_iso: str
+    arrival_datetime_iso: str
+    latest_acceptable_station_arrival_iso: str
+    actual_arrival_buffer_minutes: int | None
+    
+    is_feasible: bool
+    total_estimated_fare: float | None = None
+    score: float = 0.0
+    rank: int = 0
+    match_category: Literal["best_match", "feasible_alternative", "infeasible", "insufficient_data"] = "feasible_alternative"
+    explanation: str
+
+
+class QuotaInfo(BaseModel):
+    """Structured provider quota status attached to journey responses."""
+    used_requests: int = 0
+    remaining_requests: int = 0
+    monthly_limit: int = 100
+    reserve_held: int = 5
+    reset_date: str | None = None
+    reset_date_formatted: str | None = None
+    source: str = "local_sqlite_durable"
+    is_exhausted: bool = False
+    usable_cached_results_exist: bool = False
+    last_successful_retrieval_at: str | None = None
+
+
 class JourneyPlanResponse(BaseModel):
     """Complete structured journey plan response."""
     status: Literal[
@@ -244,7 +333,17 @@ class JourneyPlanResponse(BaseModel):
         "provider_unavailable",
         "execution_limit_reached",
         "invalid_request",
+        "monthly_quota_exhausted",
+        "rate_limit_wait",
+        "no_schedule_data",
     ]
+    search_outcome: Literal[
+        "feasible_options_found",
+        "no_feasible_options",
+        "search_data_unavailable",
+        "quota_exhausted",
+        "partial_results",
+    ] | None = None
     summary: str
     trip_requirements: TripRequirements
     resolved_origin: ResolvedLocation | None = None
@@ -255,6 +354,15 @@ class JourneyPlanResponse(BaseModel):
     best_match: JourneyEvaluation | None = None
     feasible_alternatives: list[JourneyEvaluation] = Field(default_factory=list)
     infeasible_options: list[JourneyEvaluation] = Field(default_factory=list)
+    connecting_options: list[ConnectingJourneyEvaluation] = Field(default_factory=list)
+    
+    selected_station: str | None = None
+    station_selection_reason: str | None = None
+    last_mile_distance: float | None = None
+    last_mile_duration_minutes: int | None = None
+    last_mile_source: str | None = None
+    location_telemetry: dict[str, Any] = Field(default_factory=dict)
+    quota_info: QuotaInfo | None = None
     
     clarification_question: str | None = None
     missing_fields: list[str] = Field(default_factory=list)
@@ -265,3 +373,4 @@ class JourneyPlanResponse(BaseModel):
     trace: list[dict] = Field(default_factory=list)
     tool_calls_made: int = 0
     rounds_used: int = 0
+

@@ -255,7 +255,8 @@ def test_journey_planner_with_railradar_provider():
 
     req = TripRequirements(
         origin="Bengaluru",
-        destination_venue="Tidel Park",
+        destination_venue="Tidel Park, Chennai",
+        destination_city="Chennai",
         meeting_date="2026-10-25",
         meeting_time="11:45",  # Meeting at 11:45 AM
         required_arrival_buffer_minutes=45,  # Needs 45m buffer + ~40m cab = arrives before 10:20

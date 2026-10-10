@@ -2,16 +2,24 @@
 RailSathi AI — RailRadar API Client
 
 High-performance, secure, resilient client adapter for RailRadar (api.railradar.in).
-Handles authentication, query building, bounded retries, rate limit awareness,
-safe credential-redacted logging, response parsing, and tiered in-memory caching.
+Implements the centralized 8-stage request execution controller:
+1. Validate and normalize operation
+2. Check cache and deduplicate identical in-flight requests (SingleFlight)
+3. Check monthly quota
+4. Acquire permission from per-minute rate limiter
+5. Recheck monthly quota immediately before dispatch
+6. Record attempt durably in SQLite
+7. Send HTTP request
+8. Record outcome, sanitized diagnostics, and reconcile usage
 """
 
 import time
 import re
 import logging
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable
 from urllib.parse import urlencode, quote
+from pathlib import Path
 
 try:
     import requests
@@ -20,21 +28,28 @@ try:
 except ImportError:
     requests = None  # type: ignore
 
+from backend.config import (
+    RAILRADAR_MONTHLY_QUOTA,
+    RAILRADAR_QUOTA_RESERVE,
+    RAILRADAR_RATE_LIMIT_PER_MINUTE,
+    RAILRADAR_USAGE_DB_PATH,
+)
+from backend.journey.quota import (
+    DurableRailRadarQuotaManager,
+    RailRadarPerMinuteLimiter,
+    SingleFlightDeduplicator,
+    RailRadarQuotaExhaustedError,
+    RailRadarRateLimitWaitError,
+    QuotaUsageReport,
+    RailRadarError,
+)
+
 logger = logging.getLogger("railsaathi.railradar")
 
 
 # =====================================================================
 # Exceptions (Strict Typed Hierarchy with Safe Redacted Messages)
 # =====================================================================
-
-class RailRadarError(Exception):
-    """Base exception for all RailRadar API errors."""
-    def __init__(self, message: str, status_code: Optional[int] = None, trace_id: Optional[str] = None):
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
-        self.trace_id = trace_id
-
 
 class RailRadarConfigurationError(RailRadarError):
     """Raised when RailRadar is selected but credentials or URLs are improperly configured."""
@@ -102,6 +117,7 @@ class RailRadarCache:
         self.ttl_fares = ttl_fares
         self.max_entries = max_entries
         self._store: Dict[str, Tuple[float, Any, str]] = {}  # key -> (expiry_time, data, retrieval_iso)
+        self.last_successful_schedule_retrieval: Optional[str] = None
         self._lock = threading.Lock()
 
     def _get_ttl(self, category: str) -> int:
@@ -125,7 +141,6 @@ class RailRadarCache:
                 return None
             expiry, data, retrieved_at = entry
             if time.time() > expiry:
-                # Expired
                 self._store.pop(full_key, None)
                 return None
             return data, retrieved_at
@@ -142,12 +157,12 @@ class RailRadarCache:
 
         with self._lock:
             if len(self._store) >= self.max_entries:
-                # Evict 10% oldest
                 keys_to_remove = sorted(self._store.keys(), key=lambda k: self._store[k][0])[: max(1, self.max_entries // 10)]
                 for k in keys_to_remove:
                     self._store.pop(k, None)
             self._store[full_key] = (expiry, data, retrieved_at)
-
+            if category == "trains":
+                self.last_successful_schedule_retrieval = retrieved_at
         return retrieved_at
 
     def clear(self) -> None:
@@ -162,7 +177,8 @@ class RailRadarCache:
 
 class RailRadarClient:
     """
-    Production-grade client for RailRadar API.
+    Production-grade client for RailRadar API with strict monthly quota enforcement
+    and sliding-window rate limiting.
     
     Supported Endpoints:
     - Trains Between Stations: GET /v1/trains/between/{from}/{to}
@@ -181,11 +197,19 @@ class RailRadarClient:
         ttl_trains: int = 3600,
         ttl_fares: int = 1800,
         session: Optional[Any] = None,
+        quota_manager: Optional[DurableRailRadarQuotaManager] = None,
+        rate_limiter: Optional[RailRadarPerMinuteLimiter] = None,
+        monthly_quota: Optional[int] = None,
+        quota_reserve: Optional[int] = None,
+        rate_limit_per_minute: Optional[int] = None,
+        rate_limiter_max_wait_seconds: float = 60.0,
+        usage_db_path: Optional[str | Path] = None,
     ):
         self.api_key = (api_key or "").strip()
         self.base_url = (base_url or "https://api.railradar.in").rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.max_retries = max(0, min(max_retries, 3))
+        self.rate_limiter_max_wait_seconds = rate_limiter_max_wait_seconds
 
         self.cache = RailRadarCache(
             enabled=cache_enabled,
@@ -194,7 +218,28 @@ class RailRadarClient:
             ttl_fares=ttl_fares,
         )
 
-        # Internal performance & telemetry metrics
+        # Quota Manager & Rate Limiter
+        if quota_manager is not None:
+            self.quota_manager = quota_manager
+        else:
+            m_quota = monthly_quota if monthly_quota is not None else RAILRADAR_MONTHLY_QUOTA
+            q_reserve = quota_reserve if quota_reserve is not None else RAILRADAR_QUOTA_RESERVE
+            db_p = usage_db_path or RAILRADAR_USAGE_DB_PATH
+            self.quota_manager = DurableRailRadarQuotaManager(
+                db_path=db_p,
+                monthly_limit=m_quota,
+                reserve_quota=q_reserve,
+            )
+
+        if rate_limiter is not None:
+            self.rate_limiter = rate_limiter
+        else:
+            rpm = rate_limit_per_minute if rate_limit_per_minute is not None else RAILRADAR_RATE_LIMIT_PER_MINUTE
+            self.rate_limiter = RailRadarPerMinuteLimiter(rate_limit_per_minute=rpm)
+
+        self._singleflight = SingleFlightDeduplicator()
+
+        # Telemetry metrics
         self.metrics = {
             "train_searches_made": 0,
             "station_searches_made": 0,
@@ -211,7 +256,7 @@ class RailRadarClient:
         elif requests is not None:
             self._session = requests.Session()
             adapter = HTTPAdapter(
-                max_retries=0,  # We manage bounded retries explicitly with backoff & Retry-After
+                max_retries=0,  # We manage bounded retries explicitly with backoff & quota checking
                 pool_connections=10,
                 pool_maxsize=20,
             )
@@ -230,6 +275,14 @@ class RailRadarClient:
         with self._metrics_lock:
             return dict(self.metrics)
 
+    def get_quota_report(self) -> QuotaUsageReport:
+        """Return full durable quota report."""
+        return self.quota_manager.get_usage_report()
+
+    def reconcile_dashboard_usage(self, dashboard_used: int, reset_date: Optional[str] = None) -> QuotaUsageReport:
+        """Reconcile local counter with provider confirmed dashboard count."""
+        return self.quota_manager.reconcile_with_dashboard(dashboard_used, provider_reset_date=reset_date)
+
     def _get_headers(self) -> Dict[str, str]:
         """Construct sanitized request headers."""
         if not self.api_key:
@@ -238,6 +291,7 @@ class RailRadarClient:
             )
         return {
             "Authorization": f"Bearer {self.api_key}",
+            "X-API-Key": self.api_key,
             "Accept": "application/json",
             "User-Agent": "RailSathi-AI/1.0 (Goal-Based Train Journey Planner)",
         }
@@ -246,141 +300,309 @@ class RailRadarClient:
         """Redact sensitive query parameters if any."""
         return re.sub(r"(key|token|auth)=[^&]+", r"\1=[REDACTED]", url)
 
+    # =================================================================
+    # Centralized 8-Stage Request Execution Pipeline
+    # =================================================================
+
+    def _execute_centralized_pipeline(
+        self,
+        method: str,
+        path: str,
+        params: Optional[Dict[str, Any]],
+        category: str,
+        cache_key: str,
+        allow_reserve: bool = False,
+    ) -> Tuple[Dict[str, Any], Optional[str], bool, str]:
+        """
+        Executes request according to the centralized 8-stage sequence:
+        1. Validate and normalize the operation.
+        2. Check cache and deduplicate identical in-flight requests.
+        3. Check monthly quota.
+        4. Acquire permission from per-minute limiter.
+        5. Recheck monthly quota immediately before dispatch.
+        6. Record the attempt durably.
+        7. Send the request.
+        8. Record outcome and sanitized diagnostics.
+        
+        Returns: (parsed_data, trace_id, is_cached, retrieved_at_iso)
+        """
+        # --- Stage 1: Validate & Normalize Operation ---
+        clean_params = {k: str(v) for k, v in (params or {}).items() if v is not None}
+
+        # --- Stage 2: Check Cache ---
+        cached = self.cache.get(category, cache_key)
+        if cached is not None:
+            self._increment_metric("cache_hits")
+            data, retrieved_at = cached
+            return data, None, True, retrieved_at
+
+        # Deduplicate identical in-flight requests via SingleFlight
+        dedup_key = f"{method}:{path}:{cache_key}"
+
+        def _perform_outbound_call() -> Tuple[Dict[str, Any], Optional[str], bool, str]:
+            # Double check cache inside deduplicator lock
+            inner_cached = self.cache.get(category, cache_key)
+            if inner_cached is not None:
+                self._increment_metric("cache_hits")
+                data, retrieved_at = inner_cached
+                return data, None, True, retrieved_at
+
+            if self._session is None:
+                raise RailRadarError("Python 'requests' library is not available.")
+
+            url = f"{self.base_url}{path}"
+            headers = self._get_headers()
+            params_repr = urlencode(clean_params)
+
+            attempts = 0
+            max_attempts = 1 + self.max_retries
+            last_exception: Optional[Exception] = None
+
+            while attempts < max_attempts:
+                attempts += 1
+                is_retry = (attempts > 1)
+
+                # --- Stage 3: Check Monthly Quota ---
+                has_quota, report = self.quota_manager.check_quota_available(
+                    required_amount=1,
+                    allow_reserve=allow_reserve,
+                )
+                if not has_quota:
+                    raise RailRadarQuotaExhaustedError(
+                        message=f"RailRadar monthly quota exhausted ({report.used_requests}/{report.monthly_limit} requests used).",
+                        used_requests=report.used_requests,
+                        monthly_limit=report.monthly_limit,
+                        remaining_requests=report.remaining_requests,
+                        reserve_held=report.reserve_held,
+                        reset_date=report.reset_date,
+                        source=report.source,
+                    )
+
+                # --- Stage 4: Acquire Rate Limiter Permission ---
+                try:
+                    self.rate_limiter.acquire(wait_if_needed=True, max_wait_seconds=self.rate_limiter_max_wait_seconds)
+                except RailRadarRateLimitWaitError:
+                    raise
+
+                # --- Stage 5 & 6: Recheck Monthly Quota & Record Attempt Durably ---
+                attempt_id, _ = self.quota_manager.reserve_and_record_attempt(
+                    endpoint=path,
+                    method=method,
+                    params_sanitized=params_repr,
+                    attempt_number=attempts,
+                    is_retry=is_retry,
+                    allow_reserve=allow_reserve,
+                )
+
+                # --- Stage 7: Send the Request ---
+                start_time = time.time()
+                resp = None
+                status_code: Optional[int] = None
+                trace_id: Optional[str] = None
+                is_success = False
+                error_type: Optional[str] = None
+
+                try:
+                    logger.debug(f"RailRadar HTTP {method} {self._sanitize_log_url(url)} (attempt {attempts}/{max_attempts})")
+                    resp = self._session.request(
+                        method=method,
+                        url=url,
+                        params=clean_params,
+                        headers=headers,
+                        timeout=(3.0, self.timeout_seconds),
+                    )
+                    status_code = resp.status_code
+                    duration_ms = (time.time() - start_time) * 1000.0
+
+                    trace_id = resp.headers.get("X-Trace-Id") or resp.headers.get("x-request-id")
+
+                    # Parse JSON body safely
+                    try:
+                        body = resp.json() if resp.text else {}
+                    except Exception:
+                        body = {}
+                        if status_code >= 400:
+                            error_type = "RailRadarSchemaError"
+                            raise RailRadarSchemaError(
+                                f"RailRadar returned invalid JSON (HTTP {status_code})",
+                                status_code=status_code,
+                                trace_id=trace_id,
+                            )
+
+                    if isinstance(body, dict) and "meta" in body and isinstance(body["meta"], dict):
+                        trace_id = body["meta"].get("traceId", trace_id)
+
+                    # Reconcile usage if dashboard response headers exist
+                    if "x-monthly-usage-used" in resp.headers:
+                        try:
+                            dash_used = int(resp.headers["x-monthly-usage-used"])
+                            self.quota_manager.reconcile_with_dashboard(dash_used)
+                        except Exception:
+                            pass
+
+                    # --- 200 OK ---
+                    if status_code == 200:
+                        if isinstance(body, dict):
+                            if "success" in body and body["success"] is False:
+                                err_msg = body.get("message") or body.get("error") or "RailRadar returned success=false"
+                                error_type = "RailRadarBadRequestError"
+                                raise RailRadarBadRequestError(f"RailRadar API error: {err_msg}", status_code=200, trace_id=trace_id)
+                            
+                            is_success = True
+                            # --- Stage 8: Record Outcome & Cache Data ---
+                            self.quota_manager.record_attempt_outcome(
+                                attempt_id=attempt_id,
+                                status_code=status_code,
+                                is_success=True,
+                                duration_ms=duration_ms,
+                                trace_id=trace_id,
+                            )
+
+                            resp_data = body.get("data", body)
+                            retrieved_at = self.cache.set(category, cache_key, resp_data)
+                            return resp_data, trace_id, False, retrieved_at
+
+                        error_type = "RailRadarSchemaError"
+                        raise RailRadarSchemaError("Unexpected response body type: expected JSON object", status_code=200, trace_id=trace_id)
+
+                    # --- 400 Bad Request ---
+                    if status_code == 400:
+                        error_type = "RailRadarBadRequestError"
+                        self._increment_metric("api_errors")
+                        msg = body.get("message") or body.get("error") or "Invalid request parameters"
+                        raise RailRadarBadRequestError(f"RailRadar Bad Request: {msg}", status_code=400, trace_id=trace_id)
+
+                    # --- 401 / 403 Unauthorized ---
+                    if status_code in (401, 403):
+                        error_type = "RailRadarAuthError"
+                        self._increment_metric("api_errors")
+                        raise RailRadarAuthError(
+                            "RailRadar authentication failed. Please verify that your RAILRADAR_API_KEY is valid and active.",
+                            status_code=status_code,
+                            trace_id=trace_id,
+                        )
+
+                    # --- 404 Not Found ---
+                    if status_code == 404:
+                        error_type = "RailRadarNotFoundError"
+                        self._increment_metric("api_errors")
+                        msg = body.get("message") or body.get("error") or "Resource not found"
+                        raise RailRadarNotFoundError(f"RailRadar Not Found: {msg}", status_code=404, trace_id=trace_id)
+
+                    # --- 429 Rate Limited ---
+                    if status_code == 429:
+                        error_type = "RailRadarRateLimitError"
+                        self._increment_metric("api_errors")
+                        retry_after_hdr = resp.headers.get("Retry-After")
+                        retry_after_sec = int(retry_after_hdr) if retry_after_hdr and retry_after_hdr.isdigit() else None
+                        if retry_after_sec:
+                            self.rate_limiter.note_retry_after(retry_after_sec)
+                        msg = body.get("message") or "RailRadar rate limit or quota exceeded"
+                        raise RailRadarRateLimitError(f"RailRadar Rate Limit Exceeded: {msg}", retry_after=retry_after_sec, trace_id=trace_id)
+
+                    # --- 500 / 502 / 503 / 504 Transient Server Errors ---
+                    if status_code in (500, 502, 503, 504):
+                        error_type = "RailRadarUnavailableError"
+                        self._increment_metric("api_errors")
+                        if attempts < max_attempts:
+                            backoff = self.rate_limiter.calculate_backoff_jitter(attempts)
+                            logger.warning(f"RailRadar transient server error {status_code}. Backing off {backoff:.2f}s (retry {attempts}/{max_attempts})...")
+                            time.sleep(backoff)
+                            continue
+                        raise RailRadarUnavailableError(
+                            f"RailRadar server unavailable (HTTP {status_code})",
+                            status_code=status_code,
+                            trace_id=trace_id,
+                        )
+
+                    error_type = "RailRadarError"
+                    self._increment_metric("api_errors")
+                    raise RailRadarError(
+                        f"RailRadar request failed with HTTP {status_code}",
+                        status_code=status_code,
+                        trace_id=trace_id,
+                    )
+
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
+                    duration_ms = (time.time() - start_time) * 1000.0
+                    last_exception = net_err
+                    error_type = type(net_err).__name__
+                    self._increment_metric("api_errors")
+                    self.quota_manager.record_attempt_outcome(
+                        attempt_id=attempt_id,
+                        status_code=None,
+                        is_success=False,
+                        duration_ms=duration_ms,
+                        error_type=error_type,
+                    )
+                    if attempts < max_attempts:
+                        backoff = self.rate_limiter.calculate_backoff_jitter(attempts)
+                        logger.warning(f"RailRadar network error: {error_type}. Backing off {backoff:.2f}s (retry {attempts}/{max_attempts})...")
+                        time.sleep(backoff)
+                        continue
+                    break
+
+                except (RailRadarAuthError, RailRadarBadRequestError, RailRadarNotFoundError, RailRadarRateLimitError) as permanent_err:
+                    duration_ms = (time.time() - start_time) * 1000.0
+                    self.quota_manager.record_attempt_outcome(
+                        attempt_id=attempt_id,
+                        status_code=permanent_err.status_code,
+                        is_success=False,
+                        duration_ms=duration_ms,
+                        error_type=type(permanent_err).__name__,
+                        trace_id=permanent_err.trace_id,
+                    )
+                    raise
+
+                except RailRadarError as r_err:
+                    duration_ms = (time.time() - start_time) * 1000.0
+                    self.quota_manager.record_attempt_outcome(
+                        attempt_id=attempt_id,
+                        status_code=r_err.status_code,
+                        is_success=False,
+                        duration_ms=duration_ms,
+                        error_type=type(r_err).__name__,
+                        trace_id=r_err.trace_id,
+                    )
+                    raise
+
+                except Exception as unk_err:
+                    duration_ms = (time.time() - start_time) * 1000.0
+                    self._increment_metric("api_errors")
+                    self.quota_manager.record_attempt_outcome(
+                        attempt_id=attempt_id,
+                        status_code=None,
+                        is_success=False,
+                        duration_ms=duration_ms,
+                        error_type=type(unk_err).__name__,
+                    )
+                    raise RailRadarError(f"Unexpected RailRadar client error: {type(unk_err).__name__}: {str(unk_err)}")
+
+            if last_exception is not None:
+                raise RailRadarNetworkError(
+                    f"RailRadar network connection failed after {max_attempts} attempts: {type(last_exception).__name__}"
+                )
+            raise RailRadarError("RailRadar request failed unexpectedly.")
+
+        return self._singleflight.execute_or_join(dedup_key, _perform_outbound_call)
+
+    # Legacy helper compatible with existing tests
     def _request(
         self,
         method: str,
         path: str,
         params: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], Optional[str]]:
-        """
-        Execute an HTTP request against the RailRadar API with bounded retry logic.
-        Returns: (parsed_json_dict, trace_id)
-        """
-        if self._session is None:
-            raise RailRadarError("Python 'requests' library is not available.")
-
-        url = f"{self.base_url}{path}"
-        clean_params = {k: v for k, v in (params or {}).items() if v is not None}
-        headers = self._get_headers()
-
-        attempts = 0
-        max_attempts = 1 + self.max_retries
-        last_exception: Optional[Exception] = None
-
-        while attempts < max_attempts:
-            attempts += 1
-            try:
-                logger.debug(f"RailRadar HTTP {method} {self._sanitize_log_url(url)} (attempt {attempts}/{max_attempts})")
-                
-                resp = self._session.request(
-                    method=method,
-                    url=url,
-                    params=clean_params,
-                    headers=headers,
-                    timeout=(3.0, self.timeout_seconds),  # (connect_timeout, read_timeout)
-                )
-
-                status_code = resp.status_code
-                trace_id: Optional[str] = resp.headers.get("X-Trace-Id") or resp.headers.get("x-request-id")
-
-                # Try parsing JSON body safely
-                try:
-                    body = resp.json() if resp.text else {}
-                except Exception as json_err:
-                    body = {}
-                    if status_code >= 400:
-                        raise RailRadarSchemaError(
-                            f"RailRadar returned invalid JSON (HTTP {status_code})",
-                            status_code=status_code,
-                            trace_id=trace_id,
-                        )
-
-                if isinstance(body, dict) and "meta" in body and isinstance(body["meta"], dict):
-                    trace_id = body["meta"].get("traceId", trace_id)
-
-                # --- 200 OK ---
-                if status_code == 200:
-                    if isinstance(body, dict):
-                        # Verify success envelope if present
-                        if "success" in body and body["success"] is False:
-                            err_msg = body.get("message") or body.get("error") or "RailRadar returned success=false"
-                            raise RailRadarBadRequestError(f"RailRadar API error: {err_msg}", status_code=200, trace_id=trace_id)
-                        return body, trace_id
-                    raise RailRadarSchemaError("Unexpected response body type: expected JSON object", status_code=200, trace_id=trace_id)
-
-                # --- 400 Bad Request ---
-                if status_code == 400:
-                    self._increment_metric("api_errors")
-                    msg = body.get("message") or body.get("error") or "Invalid request parameters"
-                    raise RailRadarBadRequestError(f"RailRadar Bad Request: {msg}", status_code=400, trace_id=trace_id)
-
-                # --- 401 / 403 Unauthorized ---
-                if status_code in (401, 403):
-                    self._increment_metric("api_errors")
-                    raise RailRadarAuthError(
-                        "RailRadar authentication failed. Please verify that your RAILRADAR_API_KEY is valid and active.",
-                        status_code=status_code,
-                        trace_id=trace_id,
-                    )
-
-                # --- 404 Not Found ---
-                if status_code == 404:
-                    self._increment_metric("api_errors")
-                    msg = body.get("message") or body.get("error") or "Resource not found"
-                    raise RailRadarNotFoundError(f"RailRadar Not Found: {msg}", status_code=404, trace_id=trace_id)
-
-                # --- 429 Rate Limited ---
-                if status_code == 429:
-                    self._increment_metric("api_errors")
-                    retry_after_hdr = resp.headers.get("Retry-After")
-                    retry_after_sec = int(retry_after_hdr) if retry_after_hdr and retry_after_hdr.isdigit() else None
-                    msg = body.get("message") or "RailRadar rate limit or quota exceeded"
-                    raise RailRadarRateLimitError(f"RailRadar Rate Limit Exceeded: {msg}", retry_after=retry_after_sec, trace_id=trace_id)
-
-                # --- 500 / 502 / 503 / 504 Transient Server Errors ---
-                if status_code in (500, 502, 503, 504):
-                    self._increment_metric("api_errors")
-                    if attempts < max_attempts:
-                        logger.warning(f"RailRadar transient server error {status_code}. Retrying ({attempts}/{max_attempts})...")
-                        time.sleep(0.5 * attempts)
-                        continue
-                    raise RailRadarUnavailableError(
-                        f"RailRadar server unavailable (HTTP {status_code})",
-                        status_code=status_code,
-                        trace_id=trace_id,
-                    )
-
-                # Other HTTP errors
-                self._increment_metric("api_errors")
-                raise RailRadarError(
-                    f"RailRadar request failed with HTTP {status_code}",
-                    status_code=status_code,
-                    trace_id=trace_id,
-                )
-
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
-                last_exception = net_err
-                self._increment_metric("api_errors")
-                if attempts < max_attempts:
-                    logger.warning(f"RailRadar network timeout/connection error: {type(net_err).__name__}. Retrying ({attempts}/{max_attempts})...")
-                    time.sleep(0.5 * attempts)
-                    continue
-                break
-            except (RailRadarAuthError, RailRadarBadRequestError, RailRadarNotFoundError, RailRadarRateLimitError):
-                # Never retry deterministic client/auth/quota errors
-                raise
-            except RailRadarError:
-                raise
-            except Exception as unk_err:
-                self._increment_metric("api_errors")
-                raise RailRadarError(f"Unexpected RailRadar client error: {type(unk_err).__name__}: {str(unk_err)}")
-
-        # If loop exited on network error
-        if last_exception is not None:
-            raise RailRadarNetworkError(
-                f"RailRadar network connection failed after {max_attempts} attempts: {type(last_exception).__name__}"
-            )
-        raise RailRadarError("RailRadar request failed unexpectedly.")
+        """Direct request wrapper for backwards compatibility."""
+        cache_key = f"{path}:{urlencode(params or {})}"
+        data, trace_id, _, _ = self._execute_centralized_pipeline(
+            method=method,
+            path=path,
+            params=params,
+            category="generic",
+            cache_key=cache_key,
+        )
+        return {"data": data}, trace_id
 
     # =================================================================
     # Public API Operations
@@ -412,13 +634,6 @@ class RailRadarClient:
             raise RailRadarBadRequestError(f"Invalid journey_date format: '{journey_date}'. Expected YYYY-MM-DD.")
 
         cache_key = f"{src}:{dst}:{journey_date or 'any'}:{train_type or 'all'}:{live}"
-        cached = self.cache.get("trains", cache_key)
-        if cached is not None:
-            self._increment_metric("cache_hits")
-            data, retrieved_at = cached
-            return {"data": data, "cached": True, "retrieved_at": retrieved_at}
-
-        self._increment_metric("train_searches_made")
         path = f"/v1/trains/between/{quote(src)}/{quote(dst)}"
         params: Dict[str, Any] = {}
         if journey_date:
@@ -432,17 +647,54 @@ class RailRadarClient:
         if live:
             params["live"] = "true"
 
-        resp_body, trace_id = self._request("GET", path, params)
-        data = resp_body.get("data", {})
+        data, trace_id, is_cached, retrieved_at = self._execute_centralized_pipeline(
+            method="GET",
+            path=path,
+            params=params,
+            category="trains",
+            cache_key=cache_key,
+        )
 
-        retrieved_at = self.cache.set("trains", cache_key, data)
+        if not is_cached:
+            self._increment_metric("train_searches_made")
+
         return {
             "data": data,
-            "meta": resp_body.get("meta", {}),
             "trace_id": trace_id,
-            "cached": False,
+            "cached": is_cached,
             "retrieved_at": retrieved_at,
         }
+
+    @property
+    def last_successful_schedule_retrieval(self) -> Optional[str]:
+        """Return the ISO timestamp of the last successfully retrieved/cached train schedule."""
+        return self.cache.last_successful_schedule_retrieval
+
+    def get_cached_trains_between_stations(
+        self,
+        origin_station_code: str,
+        destination_station_code: str,
+        journey_date: Optional[str] = None,
+        train_type: Optional[str] = None,
+        live: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Check if valid unexpired schedule data is cached without consuming quota or making network calls.
+        Returns dict with keys ('data', 'trace_id', 'cached', 'retrieved_at') if cached, else None.
+        """
+        src = origin_station_code.strip().upper()
+        dst = destination_station_code.strip().upper()
+        cache_key = f"{src}:{dst}:{journey_date or 'any'}:{train_type or 'all'}:{live}"
+        cached = self.cache.get("trains", cache_key)
+        if cached is not None:
+            data, retrieved_at = cached
+            return {
+                "data": data,
+                "trace_id": None,
+                "cached": True,
+                "retrieved_at": retrieved_at,
+            }
+        return None
 
     def search_stations(
         self,
@@ -468,25 +720,24 @@ class RailRadarClient:
             valid_limit = 50
 
         cache_key = f"{q.upper()}:{valid_limit}"
-        cached = self.cache.get("stations", cache_key)
-        if cached is not None:
-            self._increment_metric("cache_hits")
-            data, retrieved_at = cached
-            return {"data": data, "cached": True, "retrieved_at": retrieved_at}
-
-        self._increment_metric("station_searches_made")
         path = "/v1/lookup/search/stations"
         params = {"q": q, "limit": valid_limit}
 
-        resp_body, trace_id = self._request("GET", path, params)
-        data = resp_body.get("data", [])
+        data, trace_id, is_cached, retrieved_at = self._execute_centralized_pipeline(
+            method="GET",
+            path=path,
+            params=params,
+            category="stations",
+            cache_key=cache_key,
+        )
 
-        retrieved_at = self.cache.set("stations", cache_key, data)
+        if not is_cached:
+            self._increment_metric("station_searches_made")
+
         return {
             "data": data,
-            "meta": resp_body.get("meta", {}),
             "trace_id": trace_id,
-            "cached": False,
+            "cached": is_cached,
             "retrieved_at": retrieved_at,
         }
 
@@ -519,13 +770,6 @@ class RailRadarClient:
             raise RailRadarBadRequestError(f"Invalid journey_date format: '{journey_date}'. Expected YYYY-MM-DD.")
 
         cache_key = f"{t_num}:{src}:{dst}:{journey_date}:{cls_code}:{q_code}"
-        cached = self.cache.get("fares", cache_key)
-        if cached is not None:
-            self._increment_metric("cache_hits")
-            data, retrieved_at = cached
-            return {"data": data, "cached": True, "retrieved_at": retrieved_at}
-
-        self._increment_metric("fare_lookups_made")
         path = f"/v1/trains/{quote(t_num)}/fare"
         params = {
             "source": src,
@@ -535,14 +779,20 @@ class RailRadarClient:
             "quotaCode": q_code,
         }
 
-        resp_body, trace_id = self._request("GET", path, params)
-        data = resp_body.get("data", {})
+        data, trace_id, is_cached, retrieved_at = self._execute_centralized_pipeline(
+            method="GET",
+            path=path,
+            params=params,
+            category="fares",
+            cache_key=cache_key,
+        )
 
-        retrieved_at = self.cache.set("fares", cache_key, data)
+        if not is_cached:
+            self._increment_metric("fare_lookups_made")
+
         return {
             "data": data,
-            "meta": resp_body.get("meta", {}),
             "trace_id": trace_id,
-            "cached": False,
+            "cached": is_cached,
             "retrieved_at": retrieved_at,
         }

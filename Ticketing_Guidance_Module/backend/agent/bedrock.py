@@ -12,7 +12,7 @@ import boto3
 from google.genai import types
 
 from backend.tools.registry import ALL_TOOL_SCHEMAS
-from backend.agent.llm import SYSTEM_INSTRUCTION
+from backend.agent.llm import SYSTEM_INSTRUCTION, get_system_instruction
 
 logger = logging.getLogger("railsaathi.bedrock")
 
@@ -121,7 +121,7 @@ class BedrockClient:
             response = self.client.converse(
                 modelId=self.model_id,
                 messages=messages,
-                system=[{"text": SYSTEM_INSTRUCTION}],
+                system=[{"text": get_system_instruction()}],
                 inferenceConfig={
                     "temperature": self.temperature,
                     "maxTokens": self.max_tokens,

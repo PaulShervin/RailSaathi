@@ -64,6 +64,32 @@ JOURNEY_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "required": ["query"],
         },
     },
+    "resolve_venue": {
+        "name": "resolve_venue",
+        "description": "Resolve an arbitrary real-world venue to verified coordinates via geocoding provider.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Venue name or landmark to resolve (e.g. 'Tidel Park').",
+                },
+                "city": {
+                    "type": "string",
+                    "description": "City name (e.g. 'Chennai').",
+                },
+                "state": {
+                    "type": "string",
+                    "description": "State name (e.g. 'Tamil Nadu').",
+                },
+                "country": {
+                    "type": "string",
+                    "description": "Country name (default: 'India').",
+                },
+            },
+            "required": ["query"],
+        },
+    },
     "find_nearby_stations": {
         "name": "find_nearby_stations",
         "description": "Find candidate railway stations serving an origin city or destination venue area.",
@@ -242,6 +268,10 @@ def execute_journey_tool(tool_name: str, args: dict) -> dict[str, Any]:
 
         elif tool_name == "resolve_location":
             loc = _location_service.resolve_location(args["query"], context_city=args.get("context_city"))
+            return {"status": "success", "resolved_location": loc.model_dump(), "tool_name": tool_name}
+
+        elif tool_name == "resolve_venue":
+            loc = _location_service.resolve_location(args["query"], context_city=args.get("city"))
             return {"status": "success", "resolved_location": loc.model_dump(), "tool_name": tool_name}
 
         elif tool_name == "find_nearby_stations":

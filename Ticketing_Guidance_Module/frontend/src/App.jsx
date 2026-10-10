@@ -73,6 +73,21 @@ const AlertTriangleIcon = () => (
   </svg>
 );
 
+const formatDisplayDate = (isoDateStr) => {
+  if (!isoDateStr) return '';
+  try {
+    const parts = isoDateStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(year, month, day);
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+  } catch (e) {}
+  return isoDateStr;
+};
+
 const GOAL_TEMPLATES = [
   {
     title: '🏢 Tidel Park Meeting (Chennai)',
@@ -229,7 +244,31 @@ export default function App() {
   };
 
   const handleRefine = async (refinements) => {
-    if (!journeyPlan) return;
+    if (!journeyPlan || planningLoading) return;
+
+    // Guard: Prevent repeatedly triggering identical requests
+    const currentReq = journeyPlan.trip_requirements || {};
+    let isIdentical = true;
+    for (const [key, val] of Object.entries(refinements)) {
+      if (currentReq[key] !== val) {
+        isIdentical = false;
+        break;
+      }
+    }
+    if (isIdentical) {
+      return;
+    }
+
+    // Explain when a new live request is required but cannot be made due to exhausted quota
+    const qInfo = journeyPlan.quota_info;
+    if (qInfo?.is_exhausted && !qInfo?.usable_cached_results_exist) {
+      setPlannerError(
+        `Cannot search new timetable: Upstream RailRadar request budget is exhausted (${qInfo.used_requests}/${qInfo.monthly_limit}). ` +
+        `Refinements cannot be queried until quota resets on ${qInfo.reset_date_formatted || qInfo.reset_date}.`
+      );
+      return;
+    }
+
     setPlanningLoading(true);
     setPlannerError(null);
 
@@ -256,6 +295,7 @@ export default function App() {
       setPlanningLoading(false);
     }
   };
+
 
   // === Chat Guidance Actions ===
   const handleSendChat = async (textToSend) => {
@@ -541,7 +581,7 @@ export default function App() {
                     <h3>
                       Reach <strong>{journeyPlan.trip_requirements.destination_venue}</strong> by{' '}
                       <span className="highlight-time">{journeyPlan.trip_requirements.meeting_time}</span> on{' '}
-                      <span>{journeyPlan.trip_requirements.meeting_date}</span>
+                      <span>{formatDisplayDate(journeyPlan.trip_requirements.meeting_date)}</span>
                     </h3>
                   </div>
                   <div className="ribbon-details">
@@ -573,12 +613,103 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* BEST FEASIBLE MATCH HERO CARD */}
-                {journeyPlan.best_match ? (
+                {/* CLARIFICATION REQUIRED OR BEST MATCH OR NO FEASIBLE HERO CARD */}
+                {journeyPlan.status === 'clarification_required' ? (
+                  <div className="no-feasible-card" style={{ borderColor: '#f59e0b', background: 'rgba(245, 158, 11, 0.08)' }}>
+                    <AlertTriangleIcon />
+                    <div style={{ width: '100%' }}>
+                      <h3 style={{ color: '#d97706' }}>⚠️ Location Clarification Required</h3>
+                      <p>{journeyPlan.clarification_question || journeyPlan.summary}</p>
+                      {journeyPlan.resolved_destination?.clarification_options?.length > 0 && (
+                        <div className="template-chips" style={{ marginTop: '0.75rem' }}>
+                          <span className="chip-label" style={{ fontWeight: 600 }}>Suggested Locations:</span>
+                          {journeyPlan.resolved_destination.clarification_options.map((opt, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              className="template-chip"
+                              style={{ borderColor: '#f59e0b', color: '#b45309', background: '#fffbeb' }}
+                              onClick={() => {
+                                setVenue(opt);
+                                setPlannerPrompt(`I have a meeting at ${opt} at ${meetingTime} on ${meetingDate}. Travel from ${origin || 'Bengaluru'}.`);
+                              }}
+                            >
+                              📍 {opt}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#64748b' }}>
+                        {journeyPlan.tradeoff_explanation}
+                      </p>
+                    </div>
+                  </div>
+                ) : (journeyPlan.search_outcome === 'quota_exhausted' || (journeyPlan.status === 'monthly_quota_exhausted' && !journeyPlan.best_match)) ? (
+                  <div className="quota-exhausted-card">
+                    <div className="quota-card-header">
+                      <AlertTriangleIcon />
+                      <h3>Train Data Request Budget Exhausted</h3>
+                      <span className="unverified-pill">⚠️ Feasibility Unverified</span>
+                    </div>
+                    <p className="quota-main-msg">
+                      Train data request budget exhausted. We could not verify whether a train meets your deadline. Cached results, if available, are shown separately.
+                    </p>
+                    <div className="quota-metrics-grid">
+                      <div className="quota-metric-item">
+                        <span className="quota-metric-lbl">Requests Used</span>
+                        <span className="quota-metric-val">
+                          {journeyPlan.quota_info ? `${journeyPlan.quota_info.used_requests} / ${journeyPlan.quota_info.monthly_limit}` : 'Exhausted'}
+                        </span>
+                      </div>
+                      <div className="quota-metric-item">
+                        <span className="quota-metric-lbl">Remaining Requests</span>
+                        <span className="quota-metric-val">
+                          {journeyPlan.quota_info ? journeyPlan.quota_info.remaining_requests : 0} ({journeyPlan.quota_info?.reserve_held || 0} reserve held)
+                        </span>
+                      </div>
+                      <div className="quota-metric-item">
+                        <span className="quota-metric-lbl">Verified Reset Time</span>
+                        <span className="quota-metric-val">
+                          {journeyPlan.quota_info?.reset_date_formatted || journeyPlan.quota_info?.reset_date || 'Next billing cycle'}
+                        </span>
+                      </div>
+                      <div className="quota-metric-item">
+                        <span className="quota-metric-lbl">Cached Results Available</span>
+                        <span className="quota-metric-val">
+                          {journeyPlan.quota_info?.usable_cached_results_exist ? 'Yes (Shown below)' : 'None found for this corridor'}
+                        </span>
+                      </div>
+                      {journeyPlan.quota_info?.last_successful_retrieval_at && (
+                        <div className="quota-metric-item">
+                          <span className="quota-metric-lbl">Last Successful Schedule Retrieval</span>
+                          <span className="quota-metric-val">
+                            {journeyPlan.quota_info.last_successful_retrieval_at}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="quota-disclaimer">
+                      ℹ️ Note: We do not label this journey impossible because train schedules could not be verified due to provider request limits.
+                    </p>
+                  </div>
+                ) : (journeyPlan.search_outcome === 'search_data_unavailable' || journeyPlan.status === 'provider_unavailable' || (journeyPlan.status === 'insufficient_data' && !journeyPlan.best_match && !journeyPlan.infeasible_options?.length)) ? (
+                  <div className="data-unavailable-card">
+                    <div className="quota-card-header">
+                      <AlertTriangleIcon />
+                      <h3>Train Schedule Data Unavailable</h3>
+                      <span className="unverified-pill">⚠️ Feasibility Unverified</span>
+                    </div>
+                    <p>{journeyPlan.summary}</p>
+                    <p className="quota-disclaimer">{journeyPlan.tradeoff_explanation}</p>
+                  </div>
+                ) : journeyPlan.best_match ? (
                   <div className="hero-recommendation-card">
                     <div className="rec-header">
                       <div className="rec-badge-row">
                         <span className="badge-best-match">🏆 TOP FEASIBLE RECOMMENDATION</span>
+                        {journeyPlan.quota_info?.is_exhausted && (
+                          <span className="cached-eval-badge">📦 Evaluated from Cached Timetable</span>
+                        )}
                         <span className="badge-buffer-success">
                           ✅ Reaches Venue {journeyPlan.best_match.actual_arrival_buffer_minutes}m Before Meeting
                         </span>
@@ -690,7 +821,7 @@ export default function App() {
                 {/* FEASIBLE ALTERNATIVES LIST */}
                 {journeyPlan.feasible_alternatives?.length > 0 && (
                   <div className="alternatives-section">
-                    <h3>🚆 Feasible Alternative Trains</h3>
+                    <h3>🚆 Feasible Alternative Direct Trains</h3>
                     <div className="alternatives-grid">
                       {journeyPlan.feasible_alternatives.map((alt) => (
                         <div key={alt.candidate_id} className="alt-card">
@@ -729,6 +860,69 @@ export default function App() {
                   </div>
                 )}
 
+                {/* CONNECTING TRAINS & MULTI-LEG ROUTES SECTION */}
+                {journeyPlan.connecting_options?.length > 0 && (
+                  <div className="alternatives-section" style={{ marginTop: '1.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                      <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        🔁 Connecting Train Options (1 Interchange)
+                      </h3>
+                      <span className="badge-buffer-success" style={{ fontSize: '0.75rem' }}>
+                        {journeyPlan.connecting_options.filter(c => c.is_feasible).length} Feasible Routes
+                      </span>
+                    </div>
+                    <div className="alternatives-grid">
+                      {journeyPlan.connecting_options.map((conn) => (
+                        <div key={conn.candidate_id} className="alt-card" style={{ borderLeft: conn.is_feasible ? '4px solid #10b981' : '4px solid #ef4444' }}>
+                          <div className="alt-card-header">
+                            <div>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                Via {conn.interchange_station_name} ({conn.interchange_station_code})
+                              </span>
+                              <h4 style={{ marginTop: '0.25rem' }}>
+                                {conn.leg_1.train_service.train_name} ➔ {conn.leg_2.train_service.train_name}
+                              </h4>
+                            </div>
+                            <span className={conn.is_feasible ? "badge-buffer" : "badge-late"}>
+                              {conn.is_feasible ? `+${conn.actual_arrival_buffer_minutes}m buffer` : 'Misses Deadline'}
+                            </span>
+                          </div>
+
+                          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: '6px', margin: '0.5rem 0', fontSize: '0.85rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                              <span><strong>Leg 1:</strong> #{conn.leg_1.train_service.train_number} ({conn.leg_1.from_station_code} {conn.leg_1.train_service.departure_time} ➔ {conn.leg_1.to_station_code} {conn.leg_1.train_service.arrival_time})</span>
+                              {conn.leg_1.booking_handoff && (
+                                <a href={conn.leg_1.booking_handoff.booking_url} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1', textDecoration: 'underline' }}>Book Leg 1</a>
+                              )}
+                            </div>
+                            <div style={{ color: '#f59e0b', fontSize: '0.8rem', paddingLeft: '0.5rem', borderLeft: '2px solid #f59e0b', margin: '0.25rem 0' }}>
+                              ⏳ {conn.layover_minutes}m layover at {conn.interchange_station_name}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.35rem' }}>
+                              <span><strong>Leg 2:</strong> #{conn.leg_2.train_service.train_number} ({conn.leg_2.from_station_code} {conn.leg_2.train_service.departure_time} ➔ {conn.leg_2.to_station_code} {conn.leg_2.train_service.arrival_time})</span>
+                              {conn.leg_2.booking_handoff && (
+                                <a href={conn.leg_2.booking_handoff.booking_url} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1', textDecoration: 'underline' }}>Book Leg 2</a>
+                              )}
+                            </div>
+                          </div>
+
+                          <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '0.25rem 0' }}>
+                            {conn.explanation}
+                          </p>
+
+                          <div className="alt-footer">
+                            <span className="alt-fare">
+                              Total Time: {Math.floor(conn.total_journey_duration_minutes / 60)}h {conn.total_journey_duration_minutes % 60}m
+                              {conn.total_estimated_fare ? ` • Est. Fare ₹${conn.total_estimated_fare}` : ''}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+
 
                 {/* INFEASIBLE / DOES NOT MEET REQUIREMENTS SECTION */}
                 {journeyPlan.infeasible_options?.length > 0 && (
@@ -764,28 +958,37 @@ export default function App() {
                   <span className="refine-lbl">⚡ Quick Refine:</span>
                   <button
                     className="btn-refine"
+                    disabled={planningLoading || journeyPlan.trip_requirements?.required_arrival_buffer_minutes === 30}
                     onClick={() => handleRefine({ required_arrival_buffer_minutes: 30 })}
                   >
                     Set 30m Buffer
                   </button>
                   <button
                     className="btn-refine"
+                    disabled={planningLoading || journeyPlan.trip_requirements?.preferred_class === 'CC'}
                     onClick={() => handleRefine({ preferred_class: 'CC' })}
                   >
                     Filter AC Chair Car (CC)
                   </button>
                   <button
                     className="btn-refine"
+                    disabled={planningLoading || journeyPlan.trip_requirements?.meeting_time === '11:00'}
                     onClick={() => handleRefine({ meeting_time: '11:00' })}
                   >
                     Postpone Meeting to 11:00 AM
                   </button>
                   <button
                     className="btn-refine"
+                    disabled={planningLoading || journeyPlan.trip_requirements?.meeting_time === '14:00'}
                     onClick={() => handleRefine({ meeting_time: '14:00' })}
                   >
                     Afternoon (02:00 PM)
                   </button>
+                  {journeyPlan.quota_info?.is_exhausted && (
+                    <span className="quota-refine-hint">
+                      ℹ️ Re-evaluates from cached schedules. Quick refine does not restore upstream RailRadar quota.
+                    </span>
+                  )}
                 </div>
               </div>
             )}

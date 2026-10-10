@@ -62,36 +62,45 @@ class JourneyFeasibilityEvaluator:
         # 4. Deterministic Deadline & Buffer Formula:
         # latest_acceptable_station_arrival = meeting_start - requested_buffer - last_mile_duration
         requested_buffer = requirements.required_arrival_buffer_minutes
-        last_mile_mins = last_mile.duration_minutes
+        last_mile_mins = last_mile.duration_minutes if last_mile else None
 
-        latest_station_arr_dt = meeting_dt - timedelta(minutes=requested_buffer + last_mile_mins)
-
-        # Estimated venue arrival = station arrival + last mile transit
-        venue_arr_dt = arr_dt + timedelta(minutes=last_mile_mins)
-
-        # Actual arrival buffer before meeting = (meeting_dt - venue_arr_dt) in minutes
-        actual_buffer_minutes = int((meeting_dt - venue_arr_dt).total_seconds() / 60)
-
-        # 5. Check hard constraints
-        hard_violations: list[str] = []
-        is_feasible = True
-
-        # Constraint A: Deadline & Buffer
-        if arr_dt > latest_station_arr_dt:
+        # If last mile duration is unknown, feasibility cannot be determined safely
+        if last_mile_mins is None or getattr(last_mile, "confidence", None) == "unknown":
+            latest_station_arr_dt = meeting_dt - timedelta(minutes=requested_buffer + 30) # reference
+            actual_buffer_minutes = None
+            venue_arr_dt = None
             is_feasible = False
-            shortfall = int((arr_dt - latest_station_arr_dt).total_seconds() / 60)
-            hard_violations.append(
-                f"Train reaches {train.destination_station_name} at {train.arrival_time}, "
-                f"which is {shortfall} mins after the required station deadline ({latest_station_arr_dt.strftime('%H:%M')})."
-            )
+            hard_violations = ["Cannot determine deadline feasibility because last-mile transit duration to venue is unknown."]
+            match_cat = "insufficient_data"
+        else:
+            latest_station_arr_dt = meeting_dt - timedelta(minutes=requested_buffer + last_mile_mins)
 
-        # Constraint B: Train must arrive before or on the meeting date/time (cannot arrive after meeting started)
-        if venue_arr_dt >= meeting_dt:
-            if not any("deadline" in v.lower() for v in hard_violations):
+            # Estimated venue arrival = station arrival + last mile transit
+            venue_arr_dt = arr_dt + timedelta(minutes=last_mile_mins)
+
+            # Actual arrival buffer before meeting = (meeting_dt - venue_arr_dt) in minutes
+            actual_buffer_minutes = int((meeting_dt - venue_arr_dt).total_seconds() / 60)
+
+            # 5. Check hard constraints
+            hard_violations: list[str] = []
+            is_feasible = True
+
+            # Constraint A: Deadline & Buffer (Inclusive: arr_dt <= latest_station_arr_dt is compliant)
+            if arr_dt > latest_station_arr_dt:
+                is_feasible = False
+                shortfall = int((arr_dt - latest_station_arr_dt).total_seconds() / 60)
                 hard_violations.append(
-                    f"Estimated venue arrival ({venue_arr_dt.strftime('%H:%M')}) is after the meeting starts ({meeting_dt.strftime('%H:%M')})."
+                    f"Train reaches {train.destination_station_name} at {train.arrival_time}, "
+                    f"which is {shortfall} mins after the required station deadline ({latest_station_arr_dt.strftime('%H:%M')})."
                 )
-            is_feasible = False
+
+            # Constraint B: Train must arrive before the meeting starts
+            if venue_arr_dt > meeting_dt:
+                if not any("deadline" in v.lower() for v in hard_violations):
+                    hard_violations.append(
+                        f"Estimated venue arrival ({venue_arr_dt.strftime('%H:%M')}) is after the meeting starts ({meeting_dt.strftime('%H:%M')})."
+                    )
+                is_feasible = False
 
         # Constraint C: Maximum Journey Duration (if specified as hard constraint)
         if requirements.maximum_journey_duration_minutes:
@@ -162,13 +171,14 @@ class JourneyFeasibilityEvaluator:
         elif pref_class:
             soft_penalties.append(f"Alternative class used: {recommended_class} (preferred was {pref_class})")
 
-        if actual_buffer_minutes >= requested_buffer:
-            extra_buffer = actual_buffer_minutes - requested_buffer
-            soft_matches.append(f"Provides {actual_buffer_minutes}m buffer at venue ({extra_buffer}m extra margin)")
-        
-        # Early arrival penalty if arriving excessively early (> 8 hours early)
-        if actual_buffer_minutes > 480:
-            soft_penalties.append(f"Arrives {actual_buffer_minutes // 60} hours before meeting; requires extended wait")
+        if actual_buffer_minutes is not None:
+            if actual_buffer_minutes >= requested_buffer:
+                extra_buffer = actual_buffer_minutes - requested_buffer
+                soft_matches.append(f"Provides {actual_buffer_minutes}m buffer at venue ({extra_buffer}m extra margin)")
+            
+            # Early arrival penalty if arriving excessively early (> 8 hours early)
+            if actual_buffer_minutes > 480:
+                soft_penalties.append(f"Arrives {actual_buffer_minutes // 60} hours before meeting; requires extended wait")
 
         if recommended_fare and requirements.budget_max:
             if recommended_fare <= requirements.budget_max:
@@ -181,12 +191,13 @@ class JourneyFeasibilityEvaluator:
             score = 100.0
 
             # Buffer quality: optimal buffer between requested_buffer and requested_buffer + 60 mins
-            if requested_buffer <= actual_buffer_minutes <= requested_buffer + 60:
-                score += 25.0
-            elif requested_buffer + 60 < actual_buffer_minutes <= requested_buffer + 180:
-                score += 15.0
-            elif actual_buffer_minutes > requested_buffer + 180:
-                score += 5.0
+            if actual_buffer_minutes is not None:
+                if requested_buffer <= actual_buffer_minutes <= requested_buffer + 60:
+                    score += 25.0
+                elif requested_buffer + 60 < actual_buffer_minutes <= requested_buffer + 180:
+                    score += 15.0
+                elif actual_buffer_minutes > requested_buffer + 180:
+                    score += 5.0
 
             # Preferred train bonus
             if is_pref_train:
@@ -201,9 +212,9 @@ class JourneyFeasibilityEvaluator:
             score += duration_bonus
 
             # Proximity / shorter last mile
-            if last_mile.distance_km < 15.0:
+            if last_mile and last_mile.distance_km < 15.0:
                 score += 10.0
-            elif last_mile.distance_km < 25.0:
+            elif last_mile and last_mile.distance_km < 25.0:
                 score += 5.0
 
             # Budget bonus (cheaper option within budget)
@@ -213,11 +224,16 @@ class JourneyFeasibilityEvaluator:
         else:
             # Negative or low score for infeasible
             score = -50.0 - len(hard_violations) * 20.0
-            if actual_buffer_minutes < 0:
+            if actual_buffer_minutes is not None and actual_buffer_minutes < 0:
                 score -= abs(actual_buffer_minutes) * 0.1
 
         # 10. Match Category and Explanation
-        match_cat = "feasible_alternative" if is_feasible else "infeasible"
+        if is_feasible:
+            match_cat = "feasible_alternative"
+        elif last_mile_mins is None or getattr(last_mile, "confidence", None) == "unknown":
+            match_cat = "insufficient_data"
+        else:
+            match_cat = "infeasible"
         
         if is_feasible:
             explanation = (

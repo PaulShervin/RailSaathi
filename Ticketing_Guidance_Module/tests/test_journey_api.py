@@ -31,7 +31,8 @@ def test_api_journey_plan_structured_fields(client):
     """Test /api/journey/plan with structured input fields."""
     payload = {
         "origin": "Bengaluru",
-        "destination_venue": "Tidel Park",
+        "destination_venue": "Tidel Park, Chennai",
+        "destination_city": "Chennai",
         "meeting_date": "2026-10-25",
         "meeting_time": "10:00",
         "required_arrival_buffer_minutes": 45,

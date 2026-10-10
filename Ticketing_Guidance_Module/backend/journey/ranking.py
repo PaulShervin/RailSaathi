@@ -133,8 +133,20 @@ class JourneyRankingEngine:
                         f"We strongly recommend {best_match.train_service.train_name} instead."
                     )
 
+            selected_station = best_match.train_service.destination_station_code
+            station_selection_reason = (
+                f"Selected {best_match.train_service.destination_station_name} ({best_match.train_service.destination_station_code}) "
+                f"via {best_match.train_service.train_name} (#{best_match.train_service.train_number}) arriving at {best_match.train_service.arrival_time}, "
+                f"providing a {best_match.actual_arrival_buffer_minutes}-minute arrival buffer before your {requirements.meeting_time} meeting."
+            )
+
+            # Check for uncertain feasibility
+            has_uncertain = any(ev.match_category == "insufficient_data" for ev in evaluations)
+            outcome = "partial_results" if has_uncertain else "feasible_options_found"
+
             return JourneyPlanResponse(
                 status="answered",
+                search_outcome=outcome,
                 summary=summary,
                 trip_requirements=requirements,
                 resolved_origin=resolved_origin,
@@ -144,6 +156,11 @@ class JourneyRankingEngine:
                 best_match=best_match,
                 feasible_alternatives=alternatives,
                 infeasible_options=infeasible,
+                selected_station=selected_station,
+                station_selection_reason=station_selection_reason,
+                last_mile_distance=best_match.last_mile_distance_km,
+                last_mile_duration_minutes=best_match.last_mile_duration_minutes,
+                last_mile_source="RailSathi Deterministic Urban Routing Model (Haversine Detour & Traffic Buffer)",
                 tradeoff_explanation=tradeoff_text,
                 sources=sources_list,
                 trace_id=trace_id,
@@ -151,7 +168,45 @@ class JourneyRankingEngine:
                 rounds_used=rounds_used,
             )
         else:
-            # No feasible trains found
+            # If no evaluations were conducted at all (e.g. empty train search results)
+            if not evaluations:
+                primary_dest_st = candidate_destination_stations[0] if candidate_destination_stations else None
+                selected_st_code = primary_dest_st.station_code if primary_dest_st else None
+                return JourneyPlanResponse(
+                    status="insufficient_data",
+                    search_outcome="search_data_unavailable",
+                    summary=(
+                        f"No train schedule data available between {requirements.origin} and {requirements.destination_venue} "
+                        f"corridors for {requirements.meeting_date}."
+                    ),
+                    trip_requirements=requirements,
+                    resolved_origin=resolved_origin,
+                    resolved_destination=resolved_destination,
+                    candidate_origin_stations=candidate_origin_stations,
+                    candidate_destination_stations=candidate_destination_stations,
+                    best_match=None,
+                    feasible_alternatives=[],
+                    infeasible_options=[],
+                    selected_station=selected_st_code,
+                    station_selection_reason="No train schedule data returned by provider to evaluate.",
+                    last_mile_distance=primary_dest_st.distance_to_venue_km if primary_dest_st else None,
+                    last_mile_duration_minutes=primary_dest_st.estimated_last_mile_minutes if primary_dest_st else None,
+                    last_mile_source="RailSathi Station Registry Proximity Model" if primary_dest_st else None,
+                    tradeoff_explanation=(
+                        f"The train timetable provider returned no train services between the selected stations on {requirements.meeting_date}. "
+                        f"Feasibility could not be determined because no train schedules were evaluated."
+                    ),
+                    sources=sources_list,
+                    trace_id=trace_id,
+                    tool_calls_made=tool_calls_made,
+                    rounds_used=rounds_used,
+                )
+
+            # Valid candidate trains were evaluated, but none satisfied deadline/buffer
+            has_uncertain = any(ev.match_category == "insufficient_data" for ev in evaluations)
+            outcome = "partial_results" if has_uncertain else "no_feasible_options"
+            status_val = "insufficient_data" if has_uncertain else "no_feasible_journey"
+
             for i, inf in enumerate(infeasible, start=1):
                 inf.rank = i
                 inf.match_category = "infeasible"
@@ -174,8 +229,17 @@ class JourneyRankingEngine:
                 f"3) Exploring alternative arrival stations closer to {requirements.destination_venue}."
             )
 
+            primary_dest_st = candidate_destination_stations[0] if candidate_destination_stations else None
+            selected_st_code = primary_dest_st.station_code if primary_dest_st else None
+            st_reason = (
+                f"Primary candidate station evaluated was {primary_dest_st.station_name} ({primary_dest_st.station_code}), "
+                f"located ~{primary_dest_st.distance_to_venue_km}km from venue."
+                if primary_dest_st else None
+            )
+
             return JourneyPlanResponse(
-                status="no_feasible_journey",
+                status=status_val,
+                search_outcome=outcome,
                 summary=(
                     f"No scheduled direct trains from {requirements.origin} can reach {requirements.destination_venue} "
                     f"before {requirements.meeting_time} on {requirements.meeting_date} with your required {requirements.required_arrival_buffer_minutes}-minute buffer."
@@ -188,6 +252,11 @@ class JourneyRankingEngine:
                 best_match=None,
                 feasible_alternatives=[],
                 infeasible_options=infeasible,
+                selected_station=selected_st_code,
+                station_selection_reason=st_reason,
+                last_mile_distance=primary_dest_st.distance_to_venue_km if primary_dest_st else None,
+                last_mile_duration_minutes=primary_dest_st.estimated_last_mile_minutes if primary_dest_st else None,
+                last_mile_source="RailSathi Station Registry Proximity Model" if primary_dest_st else None,
                 tradeoff_explanation=tradeoff_explanation,
                 sources=sources_list,
                 trace_id=trace_id,

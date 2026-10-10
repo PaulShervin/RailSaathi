@@ -42,6 +42,7 @@ dist/
 
 # SQLite databases (runtime)
 *.db
+*.sqlite
 !backend/knowledge/railsaathi.db
 !Ticketing_Guidance_Module/backend/knowledge/railsaathi.db
 
@@ -54,5 +55,3 @@ Ticketing_Guidance_Module/backend/logs/*.log
 htmlcov/
 .coverage
 .pytest_cache/
-
-.agent/

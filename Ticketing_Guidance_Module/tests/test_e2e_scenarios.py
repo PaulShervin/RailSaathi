@@ -122,7 +122,8 @@ def test_scenario_6_data_freshness_provenance():
     planner = JourneyPlanner()
     req = TripRequirements(
         origin="Bengaluru",
-        destination_venue="Tidel Park",
+        destination_venue="Tidel Park, Chennai",
+        destination_city="Chennai",
         meeting_date="2026-10-25",
         meeting_time="10:00",
     )

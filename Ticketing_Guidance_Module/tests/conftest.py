@@ -145,3 +145,25 @@ def app(temp_db, mock_llm):
 def client(app):
     """Create a test client for the Flask app."""
     return app.test_client()
+
+
+@pytest.fixture(autouse=True)
+def isolate_test_quota_db(tmp_path, monkeypatch):
+    """Ensure tests run with an isolated quota and location cache database."""
+    test_db = tmp_path / "test_quota_usage.sqlite"
+    test_loc_cache = tmp_path / "test_location_cache.sqlite"
+    monkeypatch.setenv("RAILRADAR_USAGE_DB_PATH", str(test_db))
+    monkeypatch.setenv("LOCATION_CACHE_DB_PATH", str(test_loc_cache))
+    monkeypatch.setenv("GEOCODING_PROVIDER", "registry")
+    
+    import backend.config as config
+    monkeypatch.setattr(config, "RAILRADAR_USAGE_DB_PATH", str(test_db))
+    monkeypatch.setattr(config, "LOCATION_CACHE_DB_PATH", str(test_loc_cache))
+    monkeypatch.setattr(config, "GEOCODING_PROVIDER", "registry")
+    
+    import backend.journey.quota as quota_mod
+    if hasattr(quota_mod, "_global_quota_manager"):
+        monkeypatch.setattr(quota_mod, "_global_quota_manager", None)
+        
+    import backend.journey.railradar_client as client_mod
+    monkeypatch.setattr(client_mod, "RAILRADAR_USAGE_DB_PATH", str(test_db))

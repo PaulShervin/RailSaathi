@@ -33,6 +33,18 @@ IMPORTANT PRINCIPLES & RULES:
 7. Keep responses structured, professional, clear, and concise."""
 
 
+def get_system_instruction() -> str:
+    """Return system instruction with dynamic Asia/Kolkata date/time context."""
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+    try:
+        now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+        time_ctx = f"\n\nCURRENT TIME CONTEXT: Today is {now_ist.strftime('%A, %d %B %Y (%Y-%m-%d)')}, Current Time: {now_ist.strftime('%H:%M')} IST (Asia/Kolkata). Always reference this calendar context when resolving relative dates like 'today', 'tomorrow', or days of the week."
+        return SYSTEM_INSTRUCTION + time_ctx
+    except Exception:
+        return SYSTEM_INSTRUCTION
+
+
 def build_tool_declarations() -> list[types.FunctionDeclaration]:
     """Build Gemini FunctionDeclarations from our tool schemas."""
     declarations = []
@@ -102,7 +114,7 @@ class GeminiClient:
             temperature=self.temperature,
             max_output_tokens=self.max_output_tokens,
             tools=[types.Tool(function_declarations=self.tool_declarations)],
-            system_instruction=SYSTEM_INSTRUCTION,
+            system_instruction=get_system_instruction(),
         )
 
         response = self.client.models.generate_content(

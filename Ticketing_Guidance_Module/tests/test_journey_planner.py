@@ -249,7 +249,8 @@ def test_ranking_engine_prioritizes_feasible_over_infeasible():
     planner = JourneyPlanner()
     req = TripRequirements(
         origin="Bengaluru",
-        destination_venue="Tidel Park",
+        destination_venue="Tidel Park, Chennai",
+        destination_city="Chennai",
         meeting_date="2026-10-25",
         meeting_time="10:00",
         required_arrival_buffer_minutes=45,
@@ -275,7 +276,8 @@ def test_ranking_when_no_train_is_feasible():
     planner = JourneyPlanner()
     req = TripRequirements(
         origin="Bengaluru",
-        destination_venue="Tidel Park",
+        destination_venue="Tidel Park, Chennai",
+        destination_city="Chennai",
         meeting_date="2026-10-25",
         meeting_time="05:00",
         required_arrival_buffer_minutes=45,

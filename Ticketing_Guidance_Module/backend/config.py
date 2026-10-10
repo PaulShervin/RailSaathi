@@ -33,15 +33,29 @@ RAILRADAR_API_KEY = os.getenv("RAILRADAR_API_KEY", "")
 RAILRADAR_BASE_URL = os.getenv("RAILRADAR_BASE_URL", "https://api.railradar.in").rstrip("/")
 RAILRADAR_TIMEOUT_SECONDS = float(os.getenv("RAILRADAR_TIMEOUT_SECONDS", "10.0"))
 RAILRADAR_MAX_RETRIES = int(os.getenv("RAILRADAR_MAX_RETRIES", "1"))
-RAILRADAR_MAX_FARE_LOOKUPS_PER_REQUEST = int(os.getenv("RAILRADAR_MAX_FARE_LOOKUPS_PER_REQUEST", "5"))
+RAILRADAR_MAX_FARE_LOOKUPS_PER_REQUEST = int(os.getenv("RAILRADAR_MAX_FARE_LOOKUPS_PER_REQUEST", "3"))
 RAILRADAR_CACHE_ENABLED = os.getenv("RAILRADAR_CACHE_ENABLED", "1") == "1"
 RAILRADAR_CACHE_TTL_STATIONS = int(os.getenv("RAILRADAR_CACHE_TTL_STATIONS", "86400"))  # 24 hours
 RAILRADAR_CACHE_TTL_TRAINS = int(os.getenv("RAILRADAR_CACHE_TTL_TRAINS", "3600"))        # 1 hour
 RAILRADAR_CACHE_TTL_FARES = int(os.getenv("RAILRADAR_CACHE_TTL_FARES", "1800"))          # 30 mins
+RAILRADAR_MONTHLY_QUOTA = int(os.getenv("RAILRADAR_MONTHLY_QUOTA", "100"))
+RAILRADAR_QUOTA_RESERVE = int(os.getenv("RAILRADAR_QUOTA_RESERVE", "5"))
+RAILRADAR_RATE_LIMIT_PER_MINUTE = int(os.getenv("RAILRADAR_RATE_LIMIT_PER_MINUTE", "10"))
+RAILRADAR_USAGE_DB_PATH = Path(os.getenv("RAILRADAR_USAGE_DB_PATH", str(Path(__file__).resolve().parent / "data" / "railradar_usage.sqlite")))
+
+# === Geocoding & Location Resolution ===
+GEOCODING_PROVIDER = os.getenv("GEOCODING_PROVIDER", "registry")  # 'nominatim', 'registry', 'mock'
+GEOCODING_PROVIDER_URL = os.getenv("GEOCODING_PROVIDER_URL", "https://nominatim.openstreetmap.org/search")
+GEOCODING_USER_AGENT = os.getenv("GEOCODING_USER_AGENT", "RailSathi-AI/1.0 (contact: support@railsaathi.ai)")
+GEOCODING_TIMEOUT_SECONDS = float(os.getenv("GEOCODING_TIMEOUT_SECONDS", "5.0"))
+GEOCODING_CACHE_TTL_DAYS = int(os.getenv("GEOCODING_CACHE_TTL_DAYS", "30"))
+ROUTING_CACHE_TTL_DAYS = int(os.getenv("ROUTING_CACHE_TTL_DAYS", "7"))
+LOCATION_CACHE_DB_PATH = Path(os.getenv("LOCATION_CACHE_DB_PATH", str(Path(__file__).resolve().parent / "data" / "location_cache.sqlite")))
 
 
-# === Rate Limiting ===
+# === Rate Limiting (Application Ingress) ===
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+
 
 # === Flask ===
 FLASK_ENV = os.getenv("FLASK_ENV", "development")

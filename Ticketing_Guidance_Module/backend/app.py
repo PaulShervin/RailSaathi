@@ -147,6 +147,13 @@ def create_app(test_config: dict | None = None) -> Flask:
         db_ok = DB_PATH.exists()
         llm_ok = llm_client is not None
 
+        quota_info = None
+        try:
+            if hasattr(journey_planner.train_service.provider, "client") and hasattr(journey_planner.train_service.provider.client, "get_quota_report"):
+                quota_info = journey_planner.train_service.provider.client.get_quota_report().to_dict()
+        except Exception:
+            pass
+
         return jsonify({
             "status": "healthy" if (db_ok and llm_ok) else "degraded",
             "database": "connected" if db_ok else "missing",
@@ -155,10 +162,31 @@ def create_app(test_config: dict | None = None) -> Flask:
             "model": llm_model_name,
             "train_data_provider": os.getenv("TRAIN_DATA_PROVIDER", "mock"),
             "railradar_configured": bool(os.getenv("RAILRADAR_API_KEY")),
+            "railradar_quota": quota_info,
             "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
             "tools_available": get_all_tool_names(),
             "journey_planner": "enabled",
         })
+
+    # === RailRadar Quota Status Endpoint ===
+    @app.route("/api/railradar/quota", methods=["GET"])
+    def railradar_quota_status():
+        """Return durable RailRadar monthly quota and rate limit status."""
+        try:
+            if hasattr(journey_planner.train_service.provider, "client") and hasattr(journey_planner.train_service.provider.client, "get_quota_report"):
+                report = journey_planner.train_service.provider.client.get_quota_report()
+                return jsonify(report.to_dict())
+            return jsonify({
+                "period_id": "mock",
+                "monthly_limit": 100,
+                "used_requests": 0,
+                "remaining_requests": 100,
+                "reserve_held": 5,
+                "source": "offline_mock",
+                "is_exhausted": False,
+            })
+        except Exception as e:
+            return jsonify({"error": "failed_to_fetch_quota", "message": str(e)}), 500
 
     # === Station Search Endpoint ===
     @app.route("/api/stations/search", methods=["GET"])
