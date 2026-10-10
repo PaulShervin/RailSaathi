@@ -49,5 +49,25 @@
 
 ### TASK-020: Dual-Mode Frontend UI & Comprehensive Test Suite
 - **Status**: COMPLETED
-- **Description**: Built Goal-Based Journey Planner React view (`frontend/src/App.jsx`, `frontend/src/App.css`) with timeline step visualizer, best match card, alternatives, and one-click refiners. Created 67 automated tests covering all 10 mandatory evaluation scenarios (`tests/test_journey_planner.py`, `tests/test_journey_api.py`, `tests/test_e2e_scenarios.py`). All 67 tests pass.
+- **Description**: Built Goal-Based Journey Planner React view with timeline step visualizer, best match card, alternatives, and one-click refiners. Created 67 automated tests covering all 10 mandatory evaluation scenarios. All 67 tests pass.
+- **Completed**: 2026-10-10
+
+### TASK-021: AWS Bedrock Converse Provider
+- **Status**: COMPLETED
+- **Description**: Implemented `BedrockClient` in `backend/agent/bedrock.py` using Amazon Bedrock Converse API with streaming, tool calling, and fallback support.
+- **Completed**: 2026-10-10
+
+### TASK-022: Per-IP Sliding-Window Rate Limiter
+- **Status**: COMPLETED
+- **Description**: Implemented `RateLimiter` in `backend/rate_limiter.py` with thread-safe sliding-window queues per client IP and 3 new test cases in `tests/test_rate_limiter.py` (total test suite = 70 tests).
+- **Completed**: 2026-10-10
+
+### TASK-023: Static Bundle Hosting & Universal CORS
+- **Status**: COMPLETED
+- **Description**: Configured Flask `backend/app.py` to serve built frontend static files from `frontend/dist/` and handle CORS for cross-origin environments.
+- **Completed**: 2026-10-10
+
+### TASK-024: Namespace Restructuring to Ticketing_Guidance_Module
+- **Status**: COMPLETED
+- **Description**: Restructured `backend/`, `frontend/`, and `tests/` into `Ticketing_Guidance_Module/`, updated `.gitignore`, and verified all 70 tests execute and pass cleanly.
 - **Completed**: 2026-10-10

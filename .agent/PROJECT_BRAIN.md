@@ -36,26 +36,29 @@ See [CONSTRAINTS.md](./CONSTRAINTS.md) for explicit exclusions.
 
 | Layer | Technology | Status |
 |---|---|---|
-| Frontend | React + Vite + Vanilla CSS & Tailwind styling | VERIFIED |
-| Backend | Python 3.14 + Flask 3.1 + Pydantic 2.14 | VERIFIED |
-| LLM Client | Gemini SDK (`google-genai` 2.29) + `DevMockGeminiClient` | VERIFIED |
+| Frontend | React + Vite + Vanilla CSS & Tailwind styling (`Ticketing_Guidance_Module/frontend/`) | VERIFIED |
+| Backend | Python 3.14 + Flask 3.1 + Pydantic 2.14 (`Ticketing_Guidance_Module/backend/`) | VERIFIED |
+| LLM Providers | Gemini SDK (`google-genai` 2.29) + AWS Bedrock Converse (`boto3`) + `DevMockGeminiClient` | VERIFIED |
 | Agent Controller | Deterministic Python, Tool Registry, Budget & Trace Tracking | VERIFIED |
 | Journey Engine | Deterministic Feasibility & Deadline Calculator, Ranking Engine | VERIFIED |
-| Geo & Timetables | Verified Hub & Venue Registry + Cris/NTES Timetable Data | VERIFIED |
-| Testing | Pytest 9.1.1 (67 automated tests passing) | VERIFIED |
+| Security | Per-IP Sliding-Window Rate Limiter & URL Domain Allowlist | VERIFIED |
+| Geo & Timetables | Verified Hub & Venue Registry + Timetable Data | VERIFIED |
+| Testing | Pytest 9.1.1 (70 automated tests passing, 100% pass rate) | VERIFIED |
 
-## Implemented Modules
+## Implemented Modules (Under `Ticketing_Guidance_Module/`)
 
 1. `backend/journey/models.py`: Typed Pydantic data models for TripRequirements, StationCandidates, TrainServices, JourneyEvaluations, and BookingHandoffs.
 2. `backend/journey/location.py`: Geocoding, venue resolver, candidate station finder, and last-mile transit estimator.
 3. `backend/journey/timetable.py`: Authoritative train schedules, run days, class allocations, and fare tables.
 4. `backend/journey/feasibility.py`: Deterministic deadline calculations, arrival buffers, overnight date shifts, and hard constraint validation.
 5. `backend/journey/ranking.py`: Recommendation ranking engine and trade-off synthesizer.
-6. `backend/journey/booking.py`: Official booking handoff service with domain allowlisting (`irctc.co.in`, `enquiry.indianrail.gov.in`).
+6. `backend/journey/booking.py`: Official booking handoff service with domain allowlisting (`irctc.co.in`, `enquiry.indianrail.gov.in`, `confirmtkt.com`).
 7. `backend/journey/planner.py`: Pipeline orchestrator and natural language requirement parser.
-8. `backend/tools/journey_tools.py` & `backend/tools/registry.py`: Unified tool declarations and execution dispatcher.
-9. `backend/app.py`: REST endpoints (`POST /api/journey/plan`, `POST /api/journey/refine`, `GET /api/journey/options/<id>`, `POST /api/chat`, `GET /api/health`).
-10. `frontend/src/App.jsx` & `frontend/src/App.css`: Dual-tabbed UI with Goal Planner timeline visualizer, best match card, alternatives, and ticketing chat.
+8. `backend/agent/bedrock.py`: AWS Bedrock Converse provider with streaming and function tool calling.
+9. `backend/rate_limiter.py`: In-memory thread-safe sliding window rate limiter.
+10. `backend/tools/journey_tools.py` & `backend/tools/registry.py`: Unified tool declarations and execution dispatcher.
+11. `backend/app.py`: REST endpoints (`POST /api/journey/plan`, `POST /api/journey/refine`, `GET /api/journey/options/<id>`, `POST /api/chat`, `GET /api/health`, static serving).
+12. `frontend/src/App.jsx` & `frontend/src/App.css`: Dual-tabbed UI with Goal Planner timeline visualizer, best match card, alternatives, and ticketing chat.
 
 ## Critical Constraints
 
@@ -72,7 +75,7 @@ See [CONSTRAINTS.md](./CONSTRAINTS.md) for explicit exclusions.
 - [CONSTRAINTS.md](./CONSTRAINTS.md) — Non-negotiable system rules
 - [TASKS.md](./TASKS.md) — Tracked tasks and milestones
 - [ISSUES.md](./ISSUES.md) — Known issues and future roadmap
-- [TEST_STATUS.md](./TEST_STATUS.md) — Complete automated test report
+- [TEST_STATUS.md](./TEST_STATUS.md) — Complete automated test report (70 tests)
 - [diagrams/DATA_FLOW.md](./diagrams/DATA_FLOW.md) — Request lifecycle diagram
 - [diagrams/PROJECT_TREE.md](./diagrams/PROJECT_TREE.md) — Project file tree
 - [sessions/SESSION_INDEX.md](./sessions/SESSION_INDEX.md) — Session index
