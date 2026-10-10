@@ -37,15 +37,22 @@ yarn-error.log*
 
 # Vite
 frontend/dist/
+Ticketing_Guidance_Module/frontend/dist/
+dist/
 
 # SQLite databases (runtime)
 *.db
 !backend/knowledge/railsaathi.db
+!Ticketing_Guidance_Module/backend/knowledge/railsaathi.db
 
 # Logs
 backend/logs/*.log
+Ticketing_Guidance_Module/backend/logs/*.log
+*.log
 
 # Coverage
 htmlcov/
 .coverage
 .pytest_cache/
+
+.agent/
