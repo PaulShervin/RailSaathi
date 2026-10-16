@@ -71,6 +71,7 @@ back to the rule-based extractor automatically.
 - [Architecture](docs/ARCHITECTURE.md): modules, workflow state machine, ranking model
 - [API contract](docs/API.md): endpoints, examples, error codes, session lifecycle ([requests.http](docs/requests.http))
 - [Bedrock setup](docs/BEDROCK_SETUP.md): credentials, model ID, verification, troubleshooting
+- [Station navigation](docs/STATION_NAVIGATION.md): indoor routing on station floor plans (merged from Navigation_exp)
 - [RailRadar live data](docs/RAILRADAR_SETUP.md): key setup, mapping check, failure handling
 - [Data-provider guide](docs/DATA_PROVIDERS.md): connecting an authorised railway data source
 - [Integration handoff](docs/INTEGRATION.md): how the main app embeds this module and consumes the result

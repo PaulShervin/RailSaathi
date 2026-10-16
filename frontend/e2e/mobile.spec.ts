@@ -29,12 +29,37 @@ test('dashboard → AI planner → options → details → confirm → save trip
   await expect(page.getByText(/D103 Demo Nilgiri Night Express/)).toBeVisible()
 })
 
-test('popular route starts a real plan; placeholders are labelled', async ({ page }) => {
+test('popular route starts a real plan; station navigation finds a real route', async ({ page }) => {
   await page.goto('/#/home')
   await page.getByRole('button', { name: /Chennai → Madurai/ }).click()
   await expect(page).toHaveURL(/#\/plan/)
+  // The chat shows the request and the planner's next question; the journey card stays hidden
+  // until every mandatory detail (date, passengers) has been collected.
+  const thread = page.getByTestId('chat-thread')
+  await expect(thread.getByText('from Chennai to Madurai')).toBeVisible()
+  await expect(thread.getByTestId('bubble').filter({ hasText: /\?/ }).last()).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Journey details' })).toHaveCount(0)
+  // Answer the planner's questions one at a time, as a passenger would.
+  for (const answer of ['tomorrow', '1 passenger', 'no preference']) {
+    await page.getByLabel('Type your journey request').fill(answer)
+    await page.getByRole('button', { name: 'Send' }).click()
+    await expect(thread.getByText(answer, { exact: true })).toBeVisible()
+  }
   await expect(page.getByRole('region', { name: 'Journey details' }).getByText('Madurai')).toBeVisible()
+  // Station navigation: real routing on the Chennai Central floor plan (backend app/navigation).
   await page.goto('/#/navigation')
-  await expect(page.getByText(/Preview only/)).toBeVisible()
-  await expect(page.getByRole('button', { name: /Start Navigation/ })).toBeDisabled()
+  await page.getByLabel('To').selectOption({ label: 'Platform 10' })
+  // The route is calculated as soon as the destination is chosen (no separate button).
+  await expect(page.getByTestId('route-line')).toBeVisible()
+  await expect(page.getByLabel('Route summary')).toContainText('estimate')
+  await expect(page.getByLabel('Route summary')).toContainText('Shortest route')
+  // Step-by-step shows the same route; turn-by-turn advances in order and can be exited.
+  await page.getByRole('tab', { name: 'Step-by-Step' }).click()
+  await expect(page.getByRole('list', { name: 'Step-by-Step' }).getByRole('listitem').first()).toContainText('Start at')
+  await page.getByRole('button', { name: /Start Navigation/ }).click()
+  await expect(page.getByRole('status')).toContainText('Step 1 of')
+  await page.getByRole('button', { name: /Next step/ }).click()
+  await expect(page.getByRole('status')).toContainText('Step 2 of')
+  await page.getByRole('button', { name: 'Exit navigation' }).click()
+  await expect(page.getByRole('button', { name: /Start Navigation/ })).toBeVisible()
 })

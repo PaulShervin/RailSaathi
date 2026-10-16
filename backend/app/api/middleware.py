@@ -21,17 +21,22 @@ def error_json(status: int, code: str, message: str) -> JSONResponse:
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, max_bytes: int) -> None:
+    def __init__(self, app, max_bytes: int, large_prefixes: dict[str, int] | None = None) -> None:
         super().__init__(app)
-        self._max = max_bytes
+        self._default = max_bytes
+        self._large = large_prefixes or {}
+
+    def _limit_for(self, path: str) -> int:
+        return next((limit for prefix, limit in self._large.items() if path.startswith(prefix)), self._default)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        limit = self._limit_for(request.url.path)  # per request: never store on the shared instance
         if request.method in ("POST", "PUT", "PATCH"):
             length = request.headers.get("content-length")
-            if length and length.isdigit() and int(length) > self._max:
+            if length and length.isdigit() and int(length) > limit:
                 return error_json(413, "payload_too_large", "Request body is too large.")
             body = await request.body()
-            if len(body) > self._max:
+            if len(body) > limit:
                 return error_json(413, "payload_too_large", "Request body is too large.")
         return await call_next(request)
 

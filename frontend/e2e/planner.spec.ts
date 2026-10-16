@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 test('plan, select, confirm and reassess a journey end to end', async ({ page }) => {
   await page.goto('/#/classic')
-  await expect(page.getByRole('note')).toContainText('DEMO DATA')
+  await expect(page.getByText(/DEMO DATA/)).toHaveCount(0) // demo wording removed from the website on request
   await expect(page.getByText('Planner online')).toBeVisible()
 
   const input = page.getByLabel('Type your travel request')

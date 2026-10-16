@@ -29,3 +29,9 @@ playwright-report/
 
 # RailRadar raw response samples (may contain API output)
 backend/scripts/railradar_sample.json
+
+# Station navigation runtime files (drafts, backups, simulated disruptions)
+backend/data/stations/*/station.draft.json
+backend/data/stations/*/backups/
+backend/data/stations/*/disruptions.json
+backend/.pytest_tmp/

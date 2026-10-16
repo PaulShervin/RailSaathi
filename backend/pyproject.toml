@@ -22,7 +22,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --basetemp=.pytest_tmp"  # keep test temp files on this drive (C: is nearly full)
 
 [tool.uv]
 package = false

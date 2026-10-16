@@ -7,7 +7,7 @@ import {
 import { useApp } from '../PlannerContext'
 import { AppHeader, Screen } from '../ui'
 
-const LINE_ICONS = { police: ShieldIcon, medical: MedicalIcon, enquiry: InfoIcon, lostFound: BagIcon, divyangjan: AccessibleIcon }
+const LINE_ICONS = { police: ShieldIcon, emergency: PhoneIcon, medical: MedicalIcon, enquiry: InfoIcon, lostFound: BagIcon, divyangjan: AccessibleIcon }
 const TONES = { blue: 'bg-brand-50 text-brand-600', red: 'bg-red-50 text-red-600', navy: 'bg-ink-100 text-brand-900', amber: 'bg-amber-50 text-amber-600' }
 const TILE_ICONS = { toilets: ToiletIcon, water: WaterIcon, food: FoodIcon, lounge: LoungeIcon, charging: PlugIcon, atm: AtmIcon }
 

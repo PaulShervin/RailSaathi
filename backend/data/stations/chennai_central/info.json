@@ -1,0 +1,66 @@
+{
+  "checked_on": "2026-10-10",
+  "facts": {
+    "official_name": "Puratchi Thalaivar Dr. M.G. Ramachandran Central Railway Station",
+    "station_code": "MAS",
+    "address": "Kannappar Thidal, Periyamet, Chennai, Tamil Nadu 600003",
+    "platforms": "17 (12 main station + 5 Chennai suburban terminal); this plan shows platforms 7–12 only",
+    "coordinates": {"lat": 13.0825, "lon": 80.275},
+    "sources": [
+      {"name": "erail.in – Chennai Central (MAS)", "url": "https://erail.in/info/chennai-central-railway-station-MAS/24406"},
+      {"name": "Wikipedia – Chennai Central railway station", "url": "https://en.wikipedia.org/wiki/Chennai_Central_railway_station"}
+    ]
+  },
+  "helplines": [
+    {
+      "id": "mas_enquiry",
+      "number": "044-25357780",
+      "label": "Chennai Central enquiry",
+      "purpose": "Station enquiry (alternate: 044-25357790).",
+      "category": "station",
+      "priority": 2,
+      "confidence": "secondary",
+      "sources": [{"name": "erail.in – Chennai Central (MAS)", "url": "https://erail.in/info/chennai-central-railway-station-MAS/24406"}]
+    },
+    {
+      "id": "mas_retiring_rooms",
+      "number": "044-25350586",
+      "label": "Retiring rooms (Chennai Central)",
+      "purpose": "Retiring / dormitory room bookings. Email smr@mas.railnet.gov.in.",
+      "category": "station",
+      "priority": 3,
+      "confidence": "secondary",
+      "sources": [{"name": "erail.in – Chennai Central (MAS)", "url": "https://erail.in/info/chennai-central-railway-station-MAS/24406"}]
+    },
+    {
+      "id": "mas_railway_police_sp",
+      "number": "+91-44-2836-4338",
+      "label": "Superintendent of Police, Chennai Railways (GRP office)",
+      "purpose": "Railway police office line (not an emergency line – use 139 or 112 in an emergency).",
+      "category": "station",
+      "priority": 3,
+      "confidence": "unconfirmed",
+      "sources": [{"name": "complainthub.org (third-party forum)", "url": "https://citizen.complainthub.org/t/how-to-contact-district-superintendent-of-police-sp-of-tamil-nadu-police/1972"}],
+      "notes": "From a third-party forum only – verify with Tamil Nadu Police before publishing."
+    }
+  ],
+  "not_used": [
+    {"number": "131", "reason": "Listed as enquiry on erail.in, but railway helplines other than 139/182 were discontinued from 1 Jan 2020 – use 139."},
+    {"number": "182", "reason": "RPF security helpline merged into 139 and withdrawn from 1 April 2021."},
+    {"number": "1512", "reason": "Only found as a Maharashtra railway police helpline; no Tamil Nadu source."}
+  ],
+  "amenities": [
+    {"name": "Cloak room", "detail": "Luggage deposit for passengers with a valid ticket from this station.", "mapped": false},
+    {"name": "Retiring & dormitory rooms", "detail": "Bookable online; see retiring rooms contact.", "mapped": false},
+    {"name": "Main waiting hall", "detail": "Holds up to about 1,000 people.", "mapped": true, "node_id": "concourse_centre"},
+    {"name": "Restaurants, bookshops, shopping", "detail": "Food outlets are drawn on the plan; others are not located.", "mapped": true, "node_id": "shop_nw"},
+    {"name": "Passenger enquiry terminals & 7 touch-screen PNR machines", "detail": "Locations not shown on the plan.", "mapped": false},
+    {"name": "Free WiFi", "detail": "Station-wide.", "mapped": false},
+    {"name": "Parking", "detail": "Parking & drop-off zone (south-east).", "mapped": true, "node_id": "ent_parking"},
+    {"name": "Prepaid auto & taxi stands", "detail": "At the station premises; exact location not on the plan.", "mapped": false},
+    {"name": "Public transport", "detail": "24-hour; Central Station bus stop on Wall Tax Road side; Chennai Central metro station nearby.", "mapped": true, "node_id": "ent_bus_stop"}
+  ],
+  "amenity_sources": [
+    {"name": "erail.in – Chennai Central (MAS)", "url": "https://erail.in/info/chennai-central-railway-station-MAS/24406"}
+  ]
+}

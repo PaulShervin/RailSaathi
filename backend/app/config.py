@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     railradar_max_concurrency: int = Field(default=4, ge=1, le=10)
     railradar_requests_per_minute: int = Field(default=10, ge=1)  # observed limit of the current key
 
+    # Station navigation (merged from Navigation_exp). Writes (station editor publish/draft) need
+    # X-Admin-Token == RAILSATHI_ADMIN_TOKEN; with no token set, writes are disabled (503).
+    railsathi_admin_token: SecretStr | None = None
+    railsathi_public_disruption_simulation: bool = False
+    railsathi_data_dir: str | None = None
+    railsathi_walking_speed_mps: float = Field(default=1.2, gt=0)
+    railsathi_max_backups: int = Field(default=50, ge=1)
+
     # LLM (optional). "bedrock" or "none".
     llm_provider: str = "none"
     aws_region: str | None = None
